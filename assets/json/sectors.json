@@ -1,0 +1,40 @@
+{
+  "sectors": [
+    {
+      "id": "sector_1",
+      "name": "Khalabat Sector 1",
+      "name_urdu": "خلابت سیکٹر 1",
+      "sector_number": 1,
+      "available_streets": ["Street 1", "Street 2", "Street 3", "Street 4", "Street 5"],
+      "is_service_available": true,
+      "home_sampling_fee_multiplier": 1.0
+    },
+    {
+      "id": "sector_2",
+      "name": "Khalabat Sector 2",
+      "name_urdu": "خلابت سیکٹر 2",
+      "sector_number": 2,
+      "available_streets": ["Street 1", "Street 2", "Street 3", "Street 6", "Street 7"],
+      "is_service_available": true,
+      "home_sampling_fee_multiplier": 1.0
+    },
+    {
+      "id": "sector_3",
+      "name": "Khalabat Sector 3",
+      "name_urdu": "خلابت سیکٹر 3",
+      "sector_number": 3,
+      "available_streets": ["Street 1", "Street 2", "Street 4", "Street 8", "Street 9"],
+      "is_service_available": true,
+      "home_sampling_fee_multiplier": 1.15
+    },
+    {
+      "id": "sector_4",
+      "name": "Khalabat Sector 4",
+      "name_urdu": "خلابت سیکٹر 4",
+      "sector_number": 4,
+      "available_streets": ["Street 1", "Street 2", "Street 3", "Street 10", "Street 11"],
+      "is_service_available": true,
+      "home_sampling_fee_multiplier": 1.15
+    }
+  ]
+}

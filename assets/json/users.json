@@ -1,0 +1,14 @@
+{
+  "users": [
+    {
+      "id": "user_001",
+      "phone": "03001234567",
+      "name": "Ahmad Raza",
+      "email": "ahmad@example.com",
+      "sector": "Khalabat Sector 2",
+      "address": "Street 5, House 23-A, Khalabat Sector 2",
+      "created_at": "2024-11-01T10:00:00",
+      "last_login": "2024-12-16T09:00:00"
+    }
+  ]
+}
