@@ -1,12 +1,17 @@
 // lib/presentation/screens/booking/booking_summary_screen.dart
-// Professional Booking Summary Screen
+// FIX: _confirmBooking() now calls SupabaseBookingRepository.createBooking()
+// instead of using a fake Future.delayed + hardcoded ID.
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:lab_system/core/themes/app_theme.dart';
-import 'package:lab_system/data/models/test_model.dart';
 import 'package:lab_system/data/models/address_model.dart';
+import 'package:lab_system/data/models/booking_model.dart';
+import 'package:lab_system/data/models/test_model.dart';
+import 'package:lab_system/data/repositories/base_auth_repository.dart';
+import 'package:lab_system/data/repositories/base_booking_repository.dart';
 import 'package:lab_system/presentation/screens/booking/booking_success_screen.dart';
+import 'package:lab_system/services/locator.dart';
 
 class BookingSummaryScreen extends StatefulWidget {
   final TestModel test;
@@ -30,38 +35,82 @@ class BookingSummaryScreen extends StatefulWidget {
 
 class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
   bool _isLoading = false;
+  String? _errorMessage;
+
+  // FIX: injected from locator — same pattern used everywhere else in the app
+  final BaseBookingRepository _bookingRepo = locator<BaseBookingRepository>();
+  final BaseAuthRepository _authRepo = locator<BaseAuthRepository>();
 
   double get _basePrice => widget.test.price;
   double get _homeSamplingFee =>
       widget.bookingType == 'home' ? (widget.test.homeSamplingFee ?? 500) : 0;
   double get _totalPrice => _basePrice + _homeSamplingFee;
 
-  String get _formattedDate {
-    return DateFormat('EEEE, MMMM dd, yyyy').format(widget.selectedDate);
-  }
+  String get _formattedDate =>
+      DateFormat('EEEE, MMMM dd, yyyy').format(widget.selectedDate);
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // FIX: The actual Supabase insert now happens here.
+  // Before: Future.delayed(1s) + fake ID. Now: real DB call.
+  // ─────────────────────────────────────────────────────────────────────────
   Future<void> _confirmBooking() async {
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
 
-    // Simulate API call
-    await Future.delayed(const Duration(seconds: 1));
+    try {
+      // 1. Get the currently logged-in user
+      final user = await _authRepo.getCurrentUser();
+      if (user == null || user.id.isEmpty) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'You must be logged in to book a test.';
+        });
+        return;
+      }
 
-    // Generate a dummy booking ID
-    final bookingId = 'THAL-${DateTime.now().millisecondsSinceEpoch}';
+      // 2. Map UI types to domain types
+      final bookingType = widget.bookingType == 'home'
+          ? BookingType.homeSampling
+          : BookingType.labVisit;
 
-    setState(() => _isLoading = false);
+      // 3. Call the Supabase repository — this is what was missing
+      final booking = await _bookingRepo.createBooking(
+        userId: user.id,
+        testId: widget.test.id,
+        test: widget.test,
+        sector: widget.address?.sector ?? 'Lab Visit',
+        streetNumber: widget.address?.streetNumber,
+        houseNumber: widget.address?.houseNumber,
+        bookingType: bookingType,
+        bookingDate: widget.selectedDate,
+        timeSlot: widget.selectedTimeSlot,
+      );
 
-    // Navigate to success screen
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (context) => BookingSuccessScreen(
-          bookingId: bookingId,
-          testName: widget.test.name,
-          bookingType: widget.bookingType,
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+
+      // 4. Navigate to success with the real booking ID from Supabase
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => BookingSuccessScreen(
+            bookingId: booking.id,
+            testName: widget.test.name,
+            bookingType: widget.bookingType,
+          ),
         ),
-      ),
-    );
+      );
+    } catch (e) {
+      debugPrint('❌ Booking failed: $e');
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _errorMessage =
+            'Failed to confirm booking. Please check your connection and try again.';
+      });
+    }
   }
 
   @override
@@ -89,36 +138,47 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Test Details Card
                   _buildTestDetailsCard(),
-
                   const SizedBox(height: 16),
-
-                  // Service & Location Card
                   _buildServiceDetailsCard(),
-
                   const SizedBox(height: 16),
-
-                  // Date & Time Card
                   _buildDateTimeCard(),
-
                   const SizedBox(height: 16),
-
-                  // Price Breakdown Card
                   _buildPriceBreakdownCard(),
-
                   const SizedBox(height: 16),
-
-                  // Payment Info Card
                   _buildPaymentInfoCard(),
-
+                  // FIX: Show error message if booking fails
+                  if (_errorMessage != null) ...[
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppColors.error.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(10),
+                        border:
+                            Border.all(color: AppColors.error.withOpacity(0.3)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.error_outline,
+                              size: 18, color: AppColors.error),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _errorMessage!,
+                              style: const TextStyle(
+                                  fontSize: 13, color: AppColors.error),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 80),
                 ],
               ),
             ),
           ),
-
-          // Confirm Button
           _buildConfirmButton(),
         ],
       ),
@@ -178,17 +238,15 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(
-                    color: _getCategoryColor(
-                        widget.test.getCategoryDisplayName())['bg'],
+                    color: AppColors.primaryExtraLight,
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Text(
                     widget.test.getCategoryDisplayName(),
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.w500,
-                      color: _getCategoryColor(
-                          widget.test.getCategoryDisplayName())['color'],
+                      color: AppColors.primaryGreen,
                     ),
                   ),
                 ),
@@ -208,13 +266,6 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.borderLight),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.02),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -293,13 +344,6 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.borderLight),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.02),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -366,13 +410,6 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.borderLight),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.02),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -482,7 +519,6 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
       child: SafeArea(
         child: Row(
           children: [
-            // Price Column
             Expanded(
               flex: 1,
               child: Column(
@@ -506,7 +542,6 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
               ),
             ),
             const SizedBox(width: 16),
-            // Confirm Button
             Expanded(
               flex: 2,
               child: ElevatedButton(
@@ -540,23 +575,5 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
         ),
       ),
     );
-  }
-
-  Map<String, Color> _getCategoryColor(String category) {
-    switch (category) {
-      case 'Blood Work':
-        return {'bg': AppColors.bloodWorkBg, 'color': AppColors.bloodWorkColor};
-      case 'Diabetes':
-        return {'bg': AppColors.diabetesBg, 'color': AppColors.diabetesColor};
-      case 'Renal':
-        return {'bg': AppColors.renalBg, 'color': AppColors.renalColor};
-      case 'Hepatic':
-        return {'bg': AppColors.hepaticBg, 'color': AppColors.hepaticColor};
-      default:
-        return {
-          'bg': AppColors.primaryExtraLight,
-          'color': AppColors.primaryGreen
-        };
-    }
   }
 }

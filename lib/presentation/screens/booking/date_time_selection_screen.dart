@@ -1,12 +1,15 @@
 // lib/presentation/screens/booking/date_time_selection_screen.dart
-// Professional Date & Time Selection Screen
+// FIX: _bookedSlots are no longer a hardcoded 2024 Set.
+//      Slots are fetched live from Supabase via BaseBookingRepository.
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:lab_system/core/themes/app_theme.dart';
-import 'package:lab_system/data/models/test_model.dart';
 import 'package:lab_system/data/models/address_model.dart';
+import 'package:lab_system/data/models/test_model.dart';
+import 'package:lab_system/data/repositories/base_booking_repository.dart';
 import 'package:lab_system/presentation/screens/booking/booking_summary_screen.dart';
+import 'package:lab_system/services/locator.dart';
 
 class DateTimeSelectionScreen extends StatefulWidget {
   final TestModel test;
@@ -26,11 +29,17 @@ class DateTimeSelectionScreen extends StatefulWidget {
 }
 
 class _DateTimeSelectionScreenState extends State<DateTimeSelectionScreen> {
+  // FIX: injected from locator, not hardcoded
+  final BaseBookingRepository _bookingRepo = locator<BaseBookingRepository>();
+
   DateTime? _selectedDate;
   String? _selectedTimeSlot;
 
-  // Time slots from 8 AM to 8 PM
-  final List<String> _timeSlots = [
+  // FIX: fetched from Supabase per selected date
+  List<String> _availableSlots = [];
+  bool _loadingSlots = false;
+
+  final List<String> _allSlots = const [
     '08:00 AM',
     '09:00 AM',
     '10:00 AM',
@@ -43,63 +52,56 @@ class _DateTimeSelectionScreenState extends State<DateTimeSelectionScreen> {
     '05:00 PM',
     '06:00 PM',
     '07:00 PM',
-    '08:00 PM'
+    '08:00 PM',
   ];
-
-  // Simulated booked slots (in real app, fetch from backend)
-  final Set<String> _bookedSlots = {
-    '2024-12-20_10:00 AM',
-    '2024-12-20_02:00 PM',
-    '2024-12-21_09:00 AM',
-  };
-
-  late PageController _pageController;
-  int _currentPage = 0;
 
   @override
   void initState() {
     super.initState();
-    _pageController = PageController(initialPage: 0);
+    // Pre-select today so the user sees slots immediately
+    _selectedDate = DateTime.now();
+    _fetchSlotsForDate(_selectedDate!);
   }
 
-  @override
-  void dispose() {
-    _pageController.dispose();
-    super.dispose();
+  /// FIX: replaces the hardcoded _bookedSlots Set
+  Future<void> _fetchSlotsForDate(DateTime date) async {
+    setState(() {
+      _loadingSlots = true;
+      _selectedTimeSlot = null; // clear previous selection on date change
+    });
+
+    try {
+      final available = await _bookingRepo.getAvailableTimeSlots(date);
+      if (mounted) {
+        setState(() {
+          _availableSlots = available;
+          _loadingSlots = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _availableSlots = List.from(_allSlots); // fallback: show all
+          _loadingSlots = false;
+        });
+      }
+    }
   }
 
-  bool _isSlotBooked(DateTime date, String timeSlot) {
-    final key = '${_formatDate(date)}_$timeSlot';
-    return _bookedSlots.contains(key);
-  }
+  String _formatDate(DateTime date) => DateFormat('yyyy-MM-dd').format(date);
 
-  String _formatDate(DateTime date) {
-    return DateFormat('yyyy-MM-dd').format(date);
-  }
-
-  String _formatDisplayDate(DateTime date) {
-    return DateFormat('EEE, MMM dd').format(date);
-  }
-
-  String _formatMonth(DateTime date) {
-    return DateFormat('MMMM yyyy').format(date);
-  }
+  String _formatDisplayDate(DateTime date) =>
+      DateFormat('EEE, MMM dd').format(date);
 
   List<DateTime> _getNext7Days() {
-    final List<DateTime> dates = [];
-    for (int i = 0; i < 7; i++) {
-      dates.add(DateTime.now().add(Duration(days: i)));
-    }
-    return dates;
+    final today = DateTime.now();
+    return List.generate(7, (i) => today.add(Duration(days: i)));
   }
 
   void _proceedToSummary() {
     if (_selectedDate == null || _selectedTimeSlot == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please select date and time slot'),
-          duration: Duration(seconds: 2),
-        ),
+        const SnackBar(content: Text('Please select date and time slot')),
       );
       return;
     }
@@ -148,60 +150,57 @@ class _DateTimeSelectionScreenState extends State<DateTimeSelectionScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Booking Summary Card
                   _buildBookingSummaryCard(totalPrice),
-
                   const SizedBox(height: 24),
 
-                  // Date Selection Header
-                  Row(
+                  // Date Selection
+                  const Row(
                     children: [
-                      const Icon(Icons.calendar_today,
+                      Icon(Icons.calendar_today,
                           size: 20, color: AppColors.primaryGreen),
-                      const SizedBox(width: 8),
-                      const Text(
-                        'Select Date',
-                        style: TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.w600),
-                      ),
+                      SizedBox(width: 8),
+                      Text('Select Date',
+                          style: TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _buildDatePicker(dates),
+                  const SizedBox(height: 24),
+
+                  // Time Selection
+                  const Row(
+                    children: [
+                      Icon(Icons.access_time,
+                          size: 20, color: AppColors.primaryGreen),
+                      SizedBox(width: 8),
+                      Text('Select Time Slot',
+                          style: TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.w600)),
                     ],
                   ),
                   const SizedBox(height: 12),
 
-                  // Horizontal Date Picker
-                  _buildDatePicker(dates),
+                  // FIX: Show loader while fetching slots, not hardcoded data
+                  _loadingSlots
+                      ? const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(24),
+                            child: CircularProgressIndicator(
+                                color: AppColors.primaryGreen),
+                          ),
+                        )
+                      : _buildTimeSlots(),
 
-                  const SizedBox(height: 24),
-
-                  // Time Selection Header
-                  if (_selectedDate != null) ...[
-                    Row(
-                      children: [
-                        const Icon(Icons.access_time,
-                            size: 20, color: AppColors.primaryGreen),
-                        const SizedBox(width: 8),
-                        const Text(
-                          'Select Time Slot',
-                          style: TextStyle(
-                              fontSize: 16, fontWeight: FontWeight.w600),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    _buildTimeSlots(),
+                  if (_selectedDate != null && _selectedTimeSlot != null) ...[
+                    const SizedBox(height: 16),
+                    _buildSelectedInfoCard(),
                   ],
-
                   const SizedBox(height: 20),
-
-                  // Selected Info Card
-                  if (_selectedDate != null && _selectedTimeSlot != null)
-                    _buildSelectedInfoCard(dates),
                 ],
               ),
             ),
           ),
-
-          // Bottom Button
           _buildBottomButton(totalPrice),
         ],
       ),
@@ -220,50 +219,29 @@ class _DateTimeSelectionScreenState extends State<DateTimeSelectionScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Booking Summary',
-            style: TextStyle(fontSize: 12, color: AppColors.textGray),
-          ),
+          const Text('Booking Summary',
+              style: TextStyle(fontSize: 12, color: AppColors.textGray)),
           const SizedBox(height: 8),
-          Text(
-            widget.test.name,
-            style: const TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              color: AppColors.textDark,
-            ),
-          ),
+          Text(widget.test.name,
+              style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textDark)),
           const SizedBox(height: 4),
-          Text(
-            widget.bookingType == 'lab' ? 'Lab Visit' : 'Home Sampling',
-            style: const TextStyle(fontSize: 13, color: AppColors.textGray),
-          ),
-          if (widget.address != null) ...[
-            const SizedBox(height: 4),
-            Text(
-              widget.address!.fullAddress,
-              style:
-                  const TextStyle(fontSize: 12, color: AppColors.textLightGray),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
+          Text(widget.bookingType == 'lab' ? 'Lab Visit' : 'Home Sampling',
+              style: const TextStyle(fontSize: 13, color: AppColors.textGray)),
           const Divider(height: 24),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
-                'Total Amount',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-              ),
-              Text(
-                'Rs. ${totalPrice.toStringAsFixed(0)}',
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.primaryGreen,
-                ),
-              ),
+              const Text('Total Amount',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+              Text('Rs. ${totalPrice.toStringAsFixed(0)}',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.primaryGreen,
+                  )),
             ],
           ),
         ],
@@ -284,10 +262,10 @@ class _DateTimeSelectionScreenState extends State<DateTimeSelectionScreen> {
           final isToday = _formatDate(date) == _formatDate(DateTime.now());
 
           return GestureDetector(
-            onTap: () => setState(() {
-              _selectedDate = date;
-              _selectedTimeSlot = null;
-            }),
+            onTap: () {
+              setState(() => _selectedDate = date);
+              _fetchSlotsForDate(date);
+            },
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               width: 80,
@@ -300,15 +278,6 @@ class _DateTimeSelectionScreenState extends State<DateTimeSelectionScreen> {
                   color:
                       isSelected ? Colors.transparent : AppColors.borderLight,
                 ),
-                boxShadow: isSelected
-                    ? [
-                        BoxShadow(
-                          color: AppColors.primaryGreen.withOpacity(0.3),
-                          blurRadius: 8,
-                          offset: const Offset(0, 2),
-                        ),
-                      ]
-                    : [],
               ),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -330,7 +299,6 @@ class _DateTimeSelectionScreenState extends State<DateTimeSelectionScreen> {
                       color: isSelected ? Colors.white : AppColors.textDark,
                     ),
                   ),
-                  const SizedBox(height: 2),
                   if (isToday)
                     Container(
                       width: 4,
@@ -360,33 +328,27 @@ class _DateTimeSelectionScreenState extends State<DateTimeSelectionScreen> {
         crossAxisSpacing: 12,
         mainAxisSpacing: 12,
       ),
-      itemCount: _timeSlots.length,
+      itemCount: _allSlots.length,
       itemBuilder: (context, index) {
-        final slot = _timeSlots[index];
-        final isBooked =
-            _selectedDate != null && _isSlotBooked(_selectedDate!, slot);
+        final slot = _allSlots[index];
+        // FIX: availability from live Supabase data, not 2024 hardcode
+        final isAvailable = _availableSlots.contains(slot);
         final isSelected = _selectedTimeSlot == slot;
 
         return GestureDetector(
-          onTap:
-              isBooked ? null : () => setState(() => _selectedTimeSlot = slot),
+          onTap: isAvailable
+              ? () => setState(() => _selectedTimeSlot = slot)
+              : null,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 150),
             decoration: BoxDecoration(
               color: isSelected
                   ? AppColors.primaryGreen
-                  : isBooked
+                  : !isAvailable
                       ? AppColors.backgroundLight
                       : Colors.white,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: isSelected
-                    ? Colors.transparent
-                    : isBooked
-                        ? AppColors.borderLight
-                        : AppColors.borderLight,
-                width: 1,
-              ),
+              border: Border.all(color: AppColors.borderLight),
             ),
             child: Center(
               child: Column(
@@ -399,12 +361,12 @@ class _DateTimeSelectionScreenState extends State<DateTimeSelectionScreen> {
                       fontWeight: FontWeight.w500,
                       color: isSelected
                           ? Colors.white
-                          : isBooked
+                          : !isAvailable
                               ? AppColors.textLightGray
                               : AppColors.textDark,
                     ),
                   ),
-                  if (isBooked)
+                  if (!isAvailable)
                     const Text(
                       'Booked',
                       style: TextStyle(
@@ -419,12 +381,7 @@ class _DateTimeSelectionScreenState extends State<DateTimeSelectionScreen> {
     );
   }
 
-  Widget _buildSelectedInfoCard(List<DateTime> dates) {
-    final selectedDateStr = dates.firstWhere(
-      (d) => _formatDate(d) == _formatDate(_selectedDate!),
-      orElse: () => _selectedDate!,
-    );
-
+  Widget _buildSelectedInfoCard() {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -475,17 +432,15 @@ class _DateTimeSelectionScreenState extends State<DateTimeSelectionScreen> {
       child: SafeArea(
         child: Row(
           children: [
-            // Price Column
             Expanded(
               flex: 1,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text(
-                    'Total Amount',
-                    style: TextStyle(fontSize: 12, color: AppColors.textGray),
-                  ),
+                  const Text('Total Amount',
+                      style:
+                          TextStyle(fontSize: 12, color: AppColors.textGray)),
                   const SizedBox(height: 2),
                   Text(
                     'Rs. ${totalPrice.toStringAsFixed(0)}',
@@ -499,7 +454,6 @@ class _DateTimeSelectionScreenState extends State<DateTimeSelectionScreen> {
               ),
             ),
             const SizedBox(width: 16),
-            // Continue Button
             Expanded(
               flex: 2,
               child: ElevatedButton(

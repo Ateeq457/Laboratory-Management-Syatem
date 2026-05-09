@@ -180,7 +180,7 @@ class _BookingSuccessScreenState extends State<BookingSuccessScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Booking ID Row
+          // Booking ID Row - FIXED
           Row(
             children: [
               Container(
@@ -196,26 +196,30 @@ class _BookingSuccessScreenState extends State<BookingSuccessScreen>
                 ),
               ),
               const SizedBox(width: 12),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Booking ID',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: AppColors.textGray,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Booking ID',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textGray,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    widget.bookingId,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.primaryGreen,
+                    const SizedBox(height: 2),
+                    Text(
+                      widget.bookingId,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.primaryGreen,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ],
           ),
@@ -257,6 +261,8 @@ class _BookingSuccessScreenState extends State<BookingSuccessScreen>
                         fontWeight: FontWeight.w500,
                         color: AppColors.textDark,
                       ),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 2,
                     ),
                   ],
                 ),
@@ -327,8 +333,8 @@ class _BookingSuccessScreenState extends State<BookingSuccessScreen>
                   color: AppColors.primaryGreen,
                 ),
                 const SizedBox(width: 12),
-                Expanded(
-                  child: const Text(
+                const Expanded(
+                  child: Text(
                     'You can track your booking status in the Orders section',
                     style: TextStyle(
                       fontSize: 12,

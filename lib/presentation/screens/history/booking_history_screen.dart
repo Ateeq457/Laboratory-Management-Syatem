@@ -1,5 +1,4 @@
 // lib/presentation/screens/history/booking_history_screen.dart
-// Professional Orders Screen - No Filters
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -22,10 +21,16 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen>
   final BaseBookingRepository _bookingRepository =
       locator<BaseBookingRepository>();
   final BaseAuthRepository _authRepo = locator<BaseAuthRepository>();
+
   List<BookingModel> _bookings = [];
   bool _isLoading = true;
   bool _isRefreshing = false;
   String _userId = '';
+
+  final Set<BookingStatus> _cancellableStatuses = {
+    BookingStatus.pending,
+    BookingStatus.confirmed,
+  };
 
   @override
   void initState() {
@@ -33,24 +38,19 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen>
     _loadUserId();
   }
 
+  // ── Auth ──────────────────────────────────────────────────────────────────
+
   Future<void> _loadUserId() async {
     final user = await _authRepo.getCurrentUser();
-    setState(() {
-      _userId = user?.id ?? '';
-    });
+    if (user == null || user.id.isEmpty) {
+      setState(() => _isLoading = false);
+      return;
+    }
+    setState(() => _userId = user.id);
     _loadBookings();
   }
 
-  // Define which statuses can be cancelled
-  final Set<BookingStatus> _cancellableStatuses = {
-    BookingStatus.pending,
-    BookingStatus.confirmed,
-  };
-
-  @override
-  void dispose() {
-    super.dispose();
-  }
+  // ── Data fetching ─────────────────────────────────────────────────────────
 
   Future<void> _loadBookings() async {
     setState(() => _isLoading = true);
@@ -65,69 +65,50 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen>
   }
 
   Future<void> _fetchBookings() async {
-    if (_userId.isEmpty) return;
-
+    if (_userId.isEmpty) {
+      setState(() => _bookings = []);
+      return;
+    }
     try {
       final bookings = await _bookingRepository.getUserBookings(_userId);
-      setState(() {
-        _bookings = bookings;
-      });
+      setState(() => _bookings = bookings);
     } catch (e) {
       debugPrint('Error loading bookings: $e');
     }
   }
 
-  void _navigateToTestList() {
-    Navigator.pushNamed(context, '/tests');
-  }
+  // ── Cancel logic ──────────────────────────────────────────────────────────
 
-  void _downloadReport(BookingModel booking) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Download started...'),
-        duration: Duration(seconds: 2),
-      ),
-    );
-  }
-
-  bool _canCancel(BookingStatus status) {
-    return _cancellableStatuses.contains(status);
-  }
+  bool _canCancel(BookingStatus status) =>
+      _cancellableStatuses.contains(status);
 
   String _getCancelReason(BookingStatus status) {
-    if (status == BookingStatus.sampleCollected) {
-      return 'Sample already collected, cannot cancel';
+    switch (status) {
+      case BookingStatus.sampleCollected:
+        return 'Sample already collected, cannot cancel';
+      case BookingStatus.processing:
+        return 'Test is being processed, cannot cancel';
+      case BookingStatus.reportReady:
+        return 'Report is ready, please contact support';
+      case BookingStatus.completed:
+        return 'Booking already completed';
+      case BookingStatus.cancelled:
+        return 'Booking already cancelled';
+      default:
+        return '';
     }
-    if (status == BookingStatus.processing) {
-      return 'Test is being processed, cannot cancel';
-    }
-    if (status == BookingStatus.reportReady) {
-      return 'Report is ready, please contact support';
-    }
-    if (status == BookingStatus.completed) {
-      return 'Booking already completed';
-    }
-    if (status == BookingStatus.cancelled) {
-      return 'Booking already cancelled';
-    }
-    return '';
   }
 
   Future<void> _cancelBooking(BookingModel booking) async {
-    // Check if cancellable
     if (!_canCancel(booking.status)) {
-      final reason = _getCancelReason(booking.status);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(reason),
-          backgroundColor: AppColors.error,
-          duration: const Duration(seconds: 3),
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(_getCancelReason(booking.status)),
+        backgroundColor: AppColors.error,
+        duration: const Duration(seconds: 3),
+      ));
       return;
     }
 
-    // Show confirmation dialog
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -138,7 +119,8 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Are you sure you want to cancel ${booking.test?.name ?? 'this test'}?',
+              'Are you sure you want to cancel '
+              '${booking.test?.name ?? 'this test'}?',
               style: const TextStyle(fontSize: 14),
             ),
             const SizedBox(height: 12),
@@ -178,47 +160,52 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen>
       ),
     );
 
-    if (confirmed == true) {
-      setState(() => _isRefreshing = true);
+    if (confirmed != true) return;
 
-      final success = await _bookingRepository.cancelBooking(booking.id);
+    setState(() => _isRefreshing = true);
+    final success = await _bookingRepository.cancelBooking(booking.id);
 
-      if (success) {
-        // Update the booking status locally instead of removing
-        setState(() {
-          final index = _bookings.indexWhere((b) => b.id == booking.id);
-          if (index != -1) {
-            final cancelledBooking = booking.copyWith(
-              status: BookingStatus.cancelled,
-            );
-            _bookings[index] = cancelledBooking;
-          }
-        });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Booking cancelled successfully'),
-            backgroundColor: AppColors.success,
-            duration: Duration(seconds: 2),
-          ),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Failed to cancel booking. Please try again.'),
-            backgroundColor: AppColors.error,
-            duration: Duration(seconds: 3),
-          ),
-        );
+    if (success) {
+      setState(() {
+        final index = _bookings.indexWhere((b) => b.id == booking.id);
+        if (index != -1) {
+          _bookings[index] = booking.copyWith(status: BookingStatus.cancelled);
+        }
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Booking cancelled successfully'),
+          backgroundColor: AppColors.success,
+          duration: Duration(seconds: 2),
+        ));
       }
-
-      setState(() => _isRefreshing = false);
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Failed to cancel booking. Please try again.'),
+          backgroundColor: AppColors.error,
+          duration: Duration(seconds: 3),
+        ));
+      }
     }
+
+    setState(() => _isRefreshing = false);
   }
 
-  String _formatDate(DateTime date) {
-    return DateFormat('MMM dd, yyyy').format(date);
+  // ── Navigation ────────────────────────────────────────────────────────────
+
+  void _navigateToTestList() => Navigator.pushNamed(context, '/tests');
+
+  void _downloadReport(BookingModel booking) {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      content: Text('Download started...'),
+      duration: Duration(seconds: 2),
+    ));
   }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  String _formatDate(DateTime date) => DateFormat('MMM dd, yyyy').format(date);
 
   Map<String, dynamic> _getStatusConfig(BookingStatus status) {
     switch (status) {
@@ -289,6 +276,8 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen>
     }
   }
 
+  // ── Build ─────────────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -307,7 +296,6 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen>
             if (Navigator.canPop(context)) {
               Navigator.pop(context);
             } else {
-              // If no previous screen (direct from bottom nav), go to home
               Navigator.pushReplacementNamed(context, '/');
             }
           },
@@ -332,10 +320,8 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen>
         children: [
           CircularProgressIndicator(color: AppColors.primaryGreen),
           SizedBox(height: 16),
-          Text(
-            'Loading your bookings...',
-            style: TextStyle(color: AppColors.textGray),
-          ),
+          Text('Loading your bookings...',
+              style: TextStyle(color: AppColors.textGray)),
         ],
       ),
     );
@@ -353,37 +339,25 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen>
               color: AppColors.primaryExtraLight,
               borderRadius: BorderRadius.circular(30),
             ),
-            child: Icon(
-              Icons.history,
-              size: 50,
-              color: AppColors.primaryGreen,
-            ),
+            child: const Icon(Icons.history,
+                size: 50, color: AppColors.primaryGreen),
           ),
           const SizedBox(height: 24),
-          const Text(
-            'No Bookings Yet',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-              color: AppColors.textDark,
-            ),
-          ),
+          const Text('No Bookings Yet',
+              style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textDark)),
           const SizedBox(height: 8),
-          const Text(
-            'Book your first diagnostic test',
-            style: TextStyle(
-              fontSize: 14,
-              color: AppColors.textGray,
-            ),
-          ),
+          const Text('Book your first diagnostic test',
+              style: TextStyle(fontSize: 14, color: AppColors.textGray)),
           const SizedBox(height: 24),
           ElevatedButton(
             onPressed: _navigateToTestList,
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primaryGreen,
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
+                  borderRadius: BorderRadius.circular(12)),
             ),
             child: const Text('Browse Tests'),
           ),
@@ -396,10 +370,7 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen>
     return ListView.builder(
       padding: const EdgeInsets.all(16),
       itemCount: _bookings.length,
-      itemBuilder: (context, index) {
-        final booking = _bookings[index];
-        return _buildBookingCard(booking);
-      },
+      itemBuilder: (context, index) => _buildBookingCard(_bookings[index]),
     );
   }
 
@@ -407,21 +378,16 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen>
     final statusConfig = _getStatusConfig(booking.status);
     final isActive = booking.status != BookingStatus.completed &&
         booking.status != BookingStatus.cancelled;
-    final isReportReady = booking.status == BookingStatus.reportReady;
     final isCancellable = _canCancel(booking.status);
+    final canShowReport = booking.status == BookingStatus.reportReady;
     final progress = statusConfig['progress'] as int;
-    final canShowReport = isReportReady;
 
     return GestureDetector(
-      onTap: () {
-        // Navigate to Booking Detail Screen
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => BookingDetailScreen(booking: booking),
-          ),
-        );
-      },
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+            builder: (context) => BookingDetailScreen(booking: booking)),
+      ),
       child: Container(
         margin: const EdgeInsets.only(bottom: 16),
         decoration: BoxDecoration(
@@ -439,7 +405,7 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Booking Header
+            // Header
             Padding(
               padding: const EdgeInsets.all(16),
               child: Row(
@@ -452,19 +418,14 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen>
                         Text(
                           booking.test?.name ?? 'Diagnostic Test',
                           style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.textDark,
-                          ),
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.textDark),
                         ),
                         const SizedBox(height: 4),
-                        Text(
-                          'ID: ${booking.id}',
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: AppColors.textLightGray,
-                          ),
-                        ),
+                        Text('ID: ${booking.id}',
+                            style: const TextStyle(
+                                fontSize: 11, color: AppColors.textLightGray)),
                       ],
                     ),
                   ),
@@ -478,20 +439,14 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen>
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(
-                          statusConfig['icon'],
-                          size: 14,
-                          color: statusConfig['color'],
-                        ),
+                        Icon(statusConfig['icon'],
+                            size: 14, color: statusConfig['color']),
                         const SizedBox(width: 4),
-                        Text(
-                          statusConfig['label'],
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w500,
-                            color: statusConfig['color'],
-                          ),
-                        ),
+                        Text(statusConfig['label'],
+                            style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                                color: statusConfig['color'])),
                       ],
                     ),
                   ),
@@ -502,7 +457,7 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen>
             const Divider(
                 height: 0, thickness: 0.5, color: AppColors.borderLight),
 
-            // Booking Details
+            // Details
             Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
@@ -521,8 +476,8 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen>
               ),
             ),
 
-            // Progress Indicator (only for active bookings)
-            if (isActive && booking.status != BookingStatus.cancelled)
+            // Progress bar
+            if (isActive)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Column(
@@ -531,19 +486,14 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen>
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text(
-                          'Order Progress',
-                          style: TextStyle(
-                              fontSize: 11, color: AppColors.textGray),
-                        ),
-                        Text(
-                          '$progress%',
-                          style: const TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.primaryGreen,
-                          ),
-                        ),
+                        const Text('Order Progress',
+                            style: TextStyle(
+                                fontSize: 11, color: AppColors.textGray)),
+                        Text('$progress%',
+                            style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.primaryGreen)),
                       ],
                     ),
                     const SizedBox(height: 8),
@@ -562,7 +512,7 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen>
 
             const SizedBox(height: 12),
 
-            // Action Buttons
+            // Action buttons
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
               child: Row(
@@ -576,14 +526,11 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen>
                           backgroundColor: AppColors.primaryGreen,
                           padding: const EdgeInsets.symmetric(vertical: 10),
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
+                              borderRadius: BorderRadius.circular(10)),
                         ),
-                        child: const Text(
-                          'Download Report',
-                          style: TextStyle(
-                              fontSize: 13, fontWeight: FontWeight.w600),
-                        ),
+                        child: const Text('Download Report',
+                            style: TextStyle(
+                                fontSize: 13, fontWeight: FontWeight.w600)),
                       ),
                     ),
                   if (isCancellable &&
@@ -596,39 +543,33 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen>
                           side: const BorderSide(color: AppColors.error),
                           padding: const EdgeInsets.symmetric(vertical: 10),
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
+                              borderRadius: BorderRadius.circular(10)),
                         ),
-                        child: const Text(
-                          'Cancel Booking',
-                          style:
-                              TextStyle(fontSize: 13, color: AppColors.error),
-                        ),
+                        child: const Text('Cancel Booking',
+                            style: TextStyle(
+                                fontSize: 13, color: AppColors.error)),
                       ),
                     ),
                   if (booking.status == BookingStatus.cancelled)
                     Expanded(
                       child: OutlinedButton(
-                        onPressed: () => _navigateToTestList(),
+                        onPressed: _navigateToTestList,
                         style: OutlinedButton.styleFrom(
                           side: const BorderSide(color: AppColors.primaryGreen),
                           padding: const EdgeInsets.symmetric(vertical: 10),
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
+                              borderRadius: BorderRadius.circular(10)),
                         ),
-                        child: const Text(
-                          'Book Again',
-                          style: TextStyle(
-                              fontSize: 13, color: AppColors.primaryGreen),
-                        ),
+                        child: const Text('Book Again',
+                            style: TextStyle(
+                                fontSize: 13, color: AppColors.primaryGreen)),
                       ),
                     ),
                 ],
               ),
             ),
 
-            // If not cancellable but not completed, show reason
+            // Non-cancellable reason banner
             if (!isCancellable &&
                 isActive &&
                 !canShowReport &&
@@ -643,15 +584,13 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen>
                   ),
                   child: Row(
                     children: [
-                      Icon(Icons.info_outline,
+                      const Icon(Icons.info_outline,
                           size: 14, color: AppColors.warning),
                       const SizedBox(width: 8),
                       Expanded(
-                        child: Text(
-                          _getCancelReason(booking.status),
-                          style:
-                              TextStyle(fontSize: 11, color: AppColors.warning),
-                        ),
+                        child: Text(_getCancelReason(booking.status),
+                            style: const TextStyle(
+                                fontSize: 11, color: AppColors.warning)),
                       ),
                     ],
                   ),
@@ -663,141 +602,17 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen>
     );
   }
 
-  Future<void> _cancelBookingWithDialog(BookingModel booking) async {
-    // Check if cancellable
-    if (!_canCancel(booking.status)) {
-      final reason = _getCancelReason(booking.status);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(reason),
-          backgroundColor: AppColors.error,
-          duration: const Duration(seconds: 3),
-        ),
-      );
-      return;
-    }
-
-    // Show confirmation dialog
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Cancel Booking'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Are you sure you want to cancel ${booking.test?.name ?? 'this test'}?',
-              style: const TextStyle(fontSize: 14),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppColors.error.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Row(
-                children: [
-                  Icon(Icons.info_outline, size: 16, color: AppColors.error),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Cancellation is only allowed for pending/confirmed bookings',
-                      style: TextStyle(fontSize: 12, color: AppColors.error),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('No, Keep It',
-                style: TextStyle(color: AppColors.textGray)),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Yes, Cancel',
-                style: TextStyle(color: AppColors.error)),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true) {
-      setState(() => _isRefreshing = true);
-
-      final success = await _bookingRepository.cancelBooking(booking.id);
-
-      if (success) {
-        // Update the booking status locally
-        setState(() {
-          final index = _bookings.indexWhere((b) => b.id == booking.id);
-          if (index != -1) {
-            final cancelledBooking = booking.copyWith(
-              status: BookingStatus.cancelled,
-            );
-            _bookings[index] = cancelledBooking;
-          }
-        });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Booking cancelled successfully'),
-            backgroundColor: AppColors.success,
-            duration: Duration(seconds: 2),
-          ),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Failed to cancel booking. Please try again.'),
-            backgroundColor: AppColors.error,
-            duration: Duration(seconds: 3),
-          ),
-        );
-      }
-
-      setState(() => _isRefreshing = false);
-    }
-  }
-
-  Future<void> _cancelBookingWithoutRefresh(BookingModel booking) async {
-    final success = await _bookingRepository.cancelBooking(booking.id);
-
-    if (success) {
-      // Update the booking status locally
-      setState(() {
-        final index = _bookings.indexWhere((b) => b.id == booking.id);
-        if (index != -1) {
-          final cancelledBooking = booking.copyWith(
-            status: BookingStatus.cancelled,
-          );
-          _bookings[index] = cancelledBooking;
-        }
-      });
-    }
-  }
-
   Widget _buildDetailRow(String label, String value) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(
-          label,
-          style: const TextStyle(fontSize: 13, color: AppColors.textGray),
-        ),
-        Text(
-          value,
-          style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-              color: AppColors.textDark),
-        ),
+        Text(label,
+            style: const TextStyle(fontSize: 13, color: AppColors.textGray)),
+        Text(value,
+            style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: AppColors.textDark)),
       ],
     );
   }

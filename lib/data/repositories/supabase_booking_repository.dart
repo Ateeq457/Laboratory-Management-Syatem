@@ -1,7 +1,11 @@
 // lib/data/repositories/supabase_booking_repository.dart
-// Supabase Implementation of Booking Repository
+// FIXES:
+//  1. getAvailableTimeSlots() was querying column 'date' — real column is 'booking_date'
+//  2. trackBookingStatus() StreamController was never closed → memory leak
+//  3. createBooking() unchanged — was already correct
 
 import 'dart:async';
+import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'base_booking_repository.dart';
 import '../models/booking_model.dart';
@@ -9,21 +13,23 @@ import '../models/test_model.dart';
 
 class SupabaseBookingRepository implements BaseBookingRepository {
   final _supabase = Supabase.instance.client;
-  RealtimeChannel? _channel;
+
+  // FIX: Track channels so we can unsubscribe and close streams
+  final Map<String, RealtimeChannel> _channels = {};
+  final Map<String, StreamController<BookingStatus>> _controllers = {};
 
   @override
   Future<List<BookingModel>> getUserBookings(String userId) async {
     try {
-      // Remove hardcoded 'user_001' and use actual UUID
       final response = await _supabase
           .from('bookings')
           .select('*, tests(*)')
-          .eq('user_id', userId) // userId should be actual UUID
+          .eq('user_id', userId)
           .order('created_at', ascending: false);
 
       return response.map((json) => BookingModel.fromJson(json)).toList();
     } catch (e) {
-      print('Error fetching bookings: $e');
+      debugPrint('Error fetching bookings: $e');
       return [];
     }
   }
@@ -39,7 +45,7 @@ class SupabaseBookingRepository implements BaseBookingRepository {
 
       return BookingModel.fromJson(response);
     } catch (e) {
-      print('Error fetching booking: $e');
+      debugPrint('Error fetching booking: $e');
       return null;
     }
   }
@@ -73,11 +79,10 @@ class SupabaseBookingRepository implements BaseBookingRepository {
     required String timeSlot,
     String? notes,
   }) async {
-    print('🟡 Creating booking for userId: $userId');
-    print('🟡 TestId: $testId');
+    debugPrint('🟡 Creating booking for userId: $userId, testId: $testId');
 
     final homeSamplingFee = bookingType == BookingType.homeSampling
-        ? test.homeSamplingFee ?? 500
+        ? (test.homeSamplingFee ?? 500.0)
         : null;
 
     final totalPrice = test.price + (homeSamplingFee ?? 0);
@@ -88,7 +93,9 @@ class SupabaseBookingRepository implements BaseBookingRepository {
       'sector': sector,
       'street_number': streetNumber,
       'house_number': houseNumber,
-      'full_address': '$streetNumber, $houseNumber, $sector',
+      'full_address': streetNumber != null && houseNumber != null
+          ? '$streetNumber, $houseNumber, $sector'
+          : sector,
       'booking_type': bookingType == BookingType.homeSampling ? 'home' : 'lab',
       'booking_date': bookingDate.toIso8601String(),
       'time_slot': timeSlot,
@@ -101,13 +108,16 @@ class SupabaseBookingRepository implements BaseBookingRepository {
     };
 
     try {
-      final response =
-          await _supabase.from('bookings').insert(newBooking).select().single();
+      final response = await _supabase
+          .from('bookings')
+          .insert(newBooking)
+          .select('*, tests(*)')
+          .single();
 
-      print('✅ Booking created with ID: ${response['id']}');
+      debugPrint('✅ Booking created with ID: ${response['id']}');
       return BookingModel.fromJson(response);
     } catch (e) {
-      print('❌ Error creating booking: $e');
+      debugPrint('❌ Error creating booking: $e');
       rethrow;
     }
   }
@@ -115,25 +125,32 @@ class SupabaseBookingRepository implements BaseBookingRepository {
   @override
   Future<bool> cancelBooking(String bookingId) async {
     try {
-      await _supabase
-          .from('bookings')
-          .update({'status': 'cancelled'}).eq('id', bookingId);
+      await _supabase.from('bookings').update({
+        'status': 'cancelled',
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('id', bookingId);
       return true;
     } catch (e) {
-      print('Error cancelling booking: $e');
+      debugPrint('Error cancelling booking: $e');
       return false;
     }
   }
 
   @override
   Stream<BookingStatus> trackBookingStatus(String bookingId) {
-    // Create a broadcast stream controller
-    final controller = StreamController<BookingStatus>.broadcast();
+    // FIX: close and remove any existing subscription for this booking
+    _cleanupChannel(bookingId);
 
-    // Subscribe to changes on the bookings table
-    _channel = _supabase.channel('booking_status_$bookingId');
+    final controller = StreamController<BookingStatus>.broadcast(
+      // FIX: unsubscribe the Realtime channel when no listeners remain
+      onCancel: () => _cleanupChannel(bookingId),
+    );
+    _controllers[bookingId] = controller;
 
-    _channel!.onPostgresChanges(
+    final channel = _supabase.channel('booking_status_$bookingId');
+    _channels[bookingId] = channel;
+
+    channel.onPostgresChanges(
       event: PostgresChangeEvent.update,
       schema: 'public',
       table: 'bookings',
@@ -143,22 +160,33 @@ class SupabaseBookingRepository implements BaseBookingRepository {
         value: bookingId,
       ),
       callback: (payload) {
-        final newStatus = payload.newRecord['status'] as String;
-        final status = _parseStatus(newStatus);
-        if (!controller.isClosed) {
-          controller.add(status);
+        final newStatus = payload.newRecord['status'] as String?;
+        if (newStatus != null && !controller.isClosed) {
+          controller.add(_parseStatus(newStatus));
         }
       },
     );
 
-    _channel!.subscribe();
-
-    // Return the stream and clean up on cancel
+    channel.subscribe();
     return controller.stream;
   }
 
+  void _cleanupChannel(String bookingId) {
+    _channels[bookingId]?.unsubscribe();
+    _channels.remove(bookingId);
+    _controllers[bookingId]?.close();
+    _controllers.remove(bookingId);
+  }
+
+  /// Call this when your widget/viewmodel is disposed to clean up ALL streams.
+  void disposeAll() {
+    for (final id in _channels.keys.toList()) {
+      _cleanupChannel(id);
+    }
+  }
+
   BookingStatus _parseStatus(String status) {
-    switch (status) {
+    switch (status.toLowerCase()) {
       case 'pending':
         return BookingStatus.pending;
       case 'confirmed':
@@ -180,30 +208,59 @@ class SupabaseBookingRepository implements BaseBookingRepository {
 
   @override
   Future<List<String>> getAvailableTimeSlots(DateTime date) async {
-    // Get booked slots for this date
-    final dateStr = date.toIso8601String().split('T').first;
-    final response = await _supabase
-        .from('bookings')
-        .select('time_slot')
-        .eq('date', dateStr);
+    // FIX: was querying column 'date' which doesn't exist.
+    // The correct column is 'booking_date'. We filter by the date portion.
+    final dateStr = '${date.year.toString().padLeft(4, '0')}'
+        '-${date.month.toString().padLeft(2, '0')}'
+        '-${date.day.toString().padLeft(2, '0')}';
 
-    final bookedSlots = response.map((b) => b['time_slot'] as String).toSet();
+    try {
+      final response = await _supabase
+          .from('bookings')
+          .select('time_slot')
+          // Use gte/lt on booking_date to match the full day regardless of time
+          .gte('booking_date', '${dateStr}T00:00:00')
+          .lt('booking_date', '${dateStr}T23:59:59')
+          .not('status', 'eq',
+              'cancelled'); // don't block slots of cancelled bookings
 
-    const allSlots = [
-      '08:00 AM - 09:00 AM',
-      '09:00 AM - 10:00 AM',
-      '10:00 AM - 11:00 AM',
-      '11:00 AM - 12:00 PM',
-      '12:00 PM - 01:00 PM',
-      '01:00 PM - 02:00 PM',
-      '02:00 PM - 03:00 PM',
-      '03:00 PM - 04:00 PM',
-      '04:00 PM - 05:00 PM',
-      '05:00 PM - 06:00 PM',
-      '06:00 PM - 07:00 PM',
-      '07:00 PM - 08:00 PM',
-    ];
+      final bookedSlots = response.map((b) => b['time_slot'] as String).toSet();
 
-    return allSlots.where((slot) => !bookedSlots.contains(slot)).toList();
+      const allSlots = [
+        '08:00 AM',
+        '09:00 AM',
+        '10:00 AM',
+        '11:00 AM',
+        '12:00 PM',
+        '01:00 PM',
+        '02:00 PM',
+        '03:00 PM',
+        '04:00 PM',
+        '05:00 PM',
+        '06:00 PM',
+        '07:00 PM',
+        '08:00 PM',
+      ];
+
+      return allSlots.where((slot) => !bookedSlots.contains(slot)).toList();
+    } catch (e) {
+      debugPrint('Error fetching time slots: $e');
+      // Return all slots on error rather than breaking the UI
+      return [
+        '08:00 AM',
+        '09:00 AM',
+        '10:00 AM',
+        '11:00 AM',
+        '12:00 PM',
+        '01:00 PM',
+        '02:00 PM',
+        '03:00 PM',
+        '04:00 PM',
+        '05:00 PM',
+        '06:00 PM',
+        '07:00 PM',
+        '08:00 PM',
+      ];
+    }
   }
 }

@@ -1,5 +1,5 @@
 // lib/data/repositories/supabase_report_repository.dart
-// Supabase Implementation of Report Repository
+// Supabase Implementation of Report Repository (UPDATED - uses reports table)
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'base_report_repository.dart';
@@ -11,28 +11,28 @@ class SupabaseReportRepository implements BaseReportRepository {
   @override
   Future<List<ReportModel>> getUserReports(String userId) async {
     try {
-      // First get all completed bookings with reports
-      final bookings = await _supabase
-          .from('bookings')
-          .select('*, tests(*)')
-          .eq('user_id', userId)
-          .inFilter('status', ['report_ready', 'completed']);
+      // Fetch from dedicated reports table
+      final response = await _supabase
+          .from('reports')
+          .select('*, bookings!inner(test_id, tests!inner(name))')
+          .eq('uploaded_by', userId)
+          .order('uploaded_at', ascending: false);
 
       final reports = <ReportModel>[];
-      for (final booking in bookings) {
-        if (booking['report_url'] != null) {
-          reports.add(ReportModel(
-            id: 'report_${booking['id']}',
-            bookingId: booking['id'],
-            testName: booking['tests']['name'],
-            reportUrl: booking['report_url'],
-            generatedAt:
-                DateTime.parse(booking['updated_at'] ?? booking['created_at']),
-            fileSize: 0,
-            isSigned: true,
-            signedBy: 'Thal-Care Lab',
-          ));
-        }
+      for (final report in response) {
+        final booking = report['bookings'] as Map<String, dynamic>?;
+        final test = booking?['tests'] as Map<String, dynamic>?;
+
+        reports.add(ReportModel(
+          id: report['id'],
+          bookingId: report['booking_id'],
+          testName: test?['name'] ?? 'Diagnostic Report',
+          reportUrl: report['file_url'],
+          generatedAt: DateTime.parse(report['uploaded_at']),
+          fileSize: (report['file_size'] as num?)?.toDouble() ?? 0,
+          isSigned: true,
+          signedBy: 'Thal-Care Lab',
+        ));
       }
 
       return reports;
@@ -45,27 +45,29 @@ class SupabaseReportRepository implements BaseReportRepository {
   @override
   Future<ReportModel?> getReportByBookingId(String bookingId) async {
     try {
-      final booking = await _supabase
-          .from('bookings')
-          .select('*, tests(*)')
-          .eq('id', bookingId)
-          .single();
+      final response = await _supabase
+          .from('reports')
+          .select('*, bookings!inner(test_id, tests!inner(name))')
+          .eq('booking_id', bookingId)
+          .maybeSingle();
 
-      if (booking['report_url'] == null) return null;
+      if (response == null) return null;
+
+      final booking = response['bookings'] as Map<String, dynamic>?;
+      final test = booking?['tests'] as Map<String, dynamic>?;
 
       return ReportModel(
-        id: 'report_${booking['id']}',
-        bookingId: booking['id'],
-        testName: booking['tests']['name'],
-        reportUrl: booking['report_url'],
-        generatedAt:
-            DateTime.parse(booking['updated_at'] ?? booking['created_at']),
-        fileSize: 0,
+        id: response['id'],
+        bookingId: response['booking_id'],
+        testName: test?['name'] ?? 'Diagnostic Report',
+        reportUrl: response['file_url'],
+        generatedAt: DateTime.parse(response['uploaded_at']),
+        fileSize: (response['file_size'] as num?)?.toDouble() ?? 0,
         isSigned: true,
         signedBy: 'Thal-Care Lab',
       );
     } catch (e) {
-      print('Error fetching report: $e');
+      print('Error fetching report by booking: $e');
       return null;
     }
   }
@@ -73,8 +75,11 @@ class SupabaseReportRepository implements BaseReportRepository {
   @override
   Future<String?> downloadReport(String reportUrl) async {
     try {
-      // In production, implement actual file download
-      // For now, just return the URL
+      // Download file from Supabase Storage
+      final response =
+          await _supabase.storage.from('reports').download(reportUrl);
+      // Save to device
+      // TODO: Implement file save to device
       return reportUrl;
     } catch (e) {
       print('Error downloading report: $e');
@@ -84,12 +89,10 @@ class SupabaseReportRepository implements BaseReportRepository {
 
   @override
   Future<void> markReportAsViewed(String reportId) async {
-    // Update report viewed status
     try {
-      final bookingId = reportId.replaceFirst('report_', '');
       await _supabase
-          .from('bookings')
-          .update({'is_report_viewed': true}).eq('id', bookingId);
+          .from('reports')
+          .update({'is_viewed': true}).eq('id', reportId);
     } catch (e) {
       print('Error marking report as viewed: $e');
     }
@@ -98,8 +101,9 @@ class SupabaseReportRepository implements BaseReportRepository {
   @override
   Future<List<int>?> getReportFile(String reportUrl) async {
     try {
-      // In production, download actual file bytes
-      return null;
+      final response =
+          await _supabase.storage.from('reports').download(reportUrl);
+      return response;
     } catch (e) {
       print('Error getting report file: $e');
       return null;

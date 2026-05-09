@@ -1,12 +1,12 @@
 // lib/presentation/screens/reports/reports_screen.dart
-// Professional Reports Screen - Dynamic with Download Option
+// Dynamic Reports Screen - Now using dedicated reports table
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:lab_system/core/themes/app_theme.dart';
 import 'package:lab_system/services/locator.dart';
-import 'package:lab_system/data/repositories/base_booking_repository.dart';
-import 'package:lab_system/data/models/booking_model.dart';
+import 'package:lab_system/data/repositories/base_auth_repository.dart';
 
 class ReportsScreen extends StatefulWidget {
   final String? bookingId;
@@ -18,17 +18,25 @@ class ReportsScreen extends StatefulWidget {
 }
 
 class _ReportsScreenState extends State<ReportsScreen> {
-  final BaseBookingRepository _bookingRepository =
-      locator<BaseBookingRepository>();
+  final BaseAuthRepository _authRepo = locator<BaseAuthRepository>();
+  final _supabase = Supabase.instance.client;
 
-  List<BookingModel> _reports = [];
+  List<Map<String, dynamic>> _reports = [];
   bool _isLoading = true;
   bool _isRefreshing = false;
-  String _userId = 'user_001'; // TODO: Get from auth
+  String _userId = '';
 
   @override
   void initState() {
     super.initState();
+    _loadUserId();
+  }
+
+  Future<void> _loadUserId() async {
+    final user = await _authRepo.getCurrentUser();
+    setState(() {
+      _userId = user?.id ?? '';
+    });
     _loadReports();
   }
 
@@ -45,35 +53,50 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   Future<void> _fetchReports() async {
-    try {
-      final allBookings = await _bookingRepository.getUserBookings(_userId);
+    if (_userId.isEmpty) {
+      print('⚠️ User ID is empty');
+      return;
+    }
 
-      final reportsList = allBookings
-          .where((booking) =>
-              booking.status == BookingStatus.reportReady ||
-              booking.status == BookingStatus.completed)
-          .toList();
+    print('🟡 Fetching reports for userId: $_userId');
+
+    try {
+      // NO JOINS - JUST GET REPORTS
+      final response = await _supabase
+          .from('reports')
+          .select('*')
+          .eq('uploaded_by', _userId)
+          .order('uploaded_at', ascending: false);
+
+      print('✅ Got ${response.length} reports');
+      print('📊 Response: $response');
 
       setState(() {
-        _reports = reportsList;
+        _reports = response;
       });
     } catch (e) {
-      debugPrint('Error loading reports: $e');
+      print('❌ Error loading reports: $e');
     }
   }
 
-  void _downloadReport(BookingModel booking) {
-    // TODO: Implement actual PDF download
+  Future<void> _downloadReport(String fileUrl, String fileName) async {
+    // TODO: Implement actual PDF download from Supabase storage
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Downloading report for ${booking.test?.name}...'),
-        duration: const Duration(seconds: 2),
+      const SnackBar(
+        content: Text('Download started...'),
+        duration: Duration(seconds: 2),
       ),
     );
   }
 
-  String _formatDate(DateTime date) {
-    return DateFormat('MMM dd, yyyy').format(date);
+  String _formatDate(String? dateString) {
+    if (dateString == null) return 'Unknown date';
+    try {
+      final date = DateTime.parse(dateString);
+      return DateFormat('MMM dd, yyyy').format(date);
+    } catch (e) {
+      return 'Unknown date';
+    }
   }
 
   @override
@@ -94,12 +117,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
             if (Navigator.canPop(context)) {
               Navigator.pop(context);
             } else {
-              // If no previous screen (direct from bottom nav), go to home
               Navigator.pushReplacementNamed(context, '/');
             }
           },
         ),
-        // REMOVED: actions (download all button)
       ),
       body: RefreshIndicator(
         onRefresh: _refreshReports,
@@ -187,15 +208,21 @@ class _ReportsScreenState extends State<ReportsScreen> {
       padding: const EdgeInsets.all(16),
       itemCount: _reports.length,
       itemBuilder: (context, index) {
-        final booking = _reports[index];
-        return _buildReportCard(booking);
+        final report = _reports[index];
+        return _buildReportCard(report);
       },
     );
   }
 
-  Widget _buildReportCard(BookingModel booking) {
-    final reportDate =
-        booking.reportReadyAt ?? booking.updatedAt ?? booking.createdAt;
+  Widget _buildReportCard(Map<String, dynamic> report) {
+    // Get test name from nested structure
+    final booking = report['bookings'] as Map<String, dynamic>?;
+    final tests = booking?['tests'] as Map<String, dynamic>?;
+    final testName = tests?['name'] ?? 'Diagnostic Report';
+
+    final fileUrl = report['file_url'] ?? '';
+    final uploadedAt = report['uploaded_at'];
+    final fileName = report['file_name'] ?? 'report.pdf';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -211,7 +238,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
           ),
         ],
       ),
-      // REMOVED: InkWell - ab sirf container hai, clickable nahi
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Row(
@@ -237,20 +263,24 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    booking.test?.name ?? 'Diagnostic Report',
+                    testName,
                     style: const TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w600,
                       color: AppColors.textDark,
                     ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'ID: ${booking.id}',
+                    fileName,
                     style: const TextStyle(
                       fontSize: 11,
                       color: AppColors.textLightGray,
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 2),
                   Row(
@@ -262,29 +292,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
                       ),
                       const SizedBox(width: 4),
                       Text(
-                        _formatDate(reportDate),
+                        _formatDate(uploadedAt),
                         style: const TextStyle(
                           fontSize: 11,
                           color: AppColors.textGray,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.success.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: const Text(
-                          'Ready',
-                          style: TextStyle(
-                            fontSize: 9,
-                            color: AppColors.success,
-                            fontWeight: FontWeight.w500,
-                          ),
                         ),
                       ),
                     ],
@@ -292,9 +303,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 ],
               ),
             ),
-            // Download Button (only clickable thing)
+            // Download Button
             GestureDetector(
-              onTap: () => _downloadReport(booking),
+              onTap: () => _downloadReport(fileUrl, fileName),
               child: Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
