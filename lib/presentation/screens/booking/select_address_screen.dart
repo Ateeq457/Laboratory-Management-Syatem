@@ -100,7 +100,7 @@ class _AddressSelectionScreenState extends State<AddressSelectionScreen> {
         : '$sector, Street $street, House $house';
 
     final newAddress = AddressModel(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      id: 'temp',
       sector: sector,
       streetNumber: street,
       houseNumber: house,
