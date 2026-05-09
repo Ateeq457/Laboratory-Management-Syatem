@@ -1,5 +1,4 @@
 // lib/app.dart
-// Main App Widget with Bottom Navigation & Routing
 
 import 'package:flutter/material.dart';
 import 'package:lab_system/core/themes/app_theme.dart';
@@ -26,11 +25,8 @@ class MyApp extends StatelessWidget {
       themeMode: ThemeMode.light,
 
       // ==================== ROUTING ====================
-      initialRoute: AppRoutes.home,
+      initialRoute: AppRoutes.splash, // ← Splash screen pehle
       onGenerateRoute: AppRoutes.generateRoute,
-
-      // Home screen with bottom nav (fallback)
-      home: const MainScreen(),
     );
   }
 }
@@ -47,7 +43,6 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
 
-  // Screens for Bottom Navigation
   final List<Widget> _screens = [
     const HomeScreen(),
     const TestListScreen(),
@@ -64,7 +59,6 @@ class _MainScreenState extends State<MainScreen> {
 
   Future<bool> _onWillPop() async {
     if (_currentIndex == 0) {
-      // On home screen, show exit confirmation
       final shouldExit = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
@@ -93,11 +87,10 @@ class _MainScreenState extends State<MainScreen> {
       );
       return shouldExit ?? false;
     } else {
-      // On any other screen, go back to home (index 0)
       setState(() {
         _currentIndex = 0;
       });
-      return false; // Don't exit, just change tab
+      return false;
     }
   }
 

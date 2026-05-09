@@ -1,21 +1,26 @@
-// lib/presentation/screens/auth/login_screen.dart
-// Professional Login Screen with Mobile Number Input (Fixed Overflow)
+// lib/presentation/screens/auth/name_input_screen.dart
+// Professional Name Input Screen after OTP Verification
 
 import 'package:flutter/material.dart';
 import 'package:lab_system/core/themes/app_theme.dart';
+import 'package:lab_system/core/routes/app_routes.dart';
 import 'package:lab_system/services/locator.dart';
 import 'package:lab_system/data/repositories/base_auth_repository.dart';
-import 'package:lab_system/presentation/screens/auth/otp_verification_screen.dart';
 
-class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+class NameInputScreen extends StatefulWidget {
+  final String phoneNumber;
+
+  const NameInputScreen({
+    super.key,
+    required this.phoneNumber,
+  });
 
   @override
-  State<LoginScreen> createState() => _LoginScreenState();
+  State<NameInputScreen> createState() => _NameInputScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
-  final TextEditingController _phoneController = TextEditingController();
+class _NameInputScreenState extends State<NameInputScreen> {
+  final TextEditingController _nameController = TextEditingController();
   final BaseAuthRepository _authRepo = locator<BaseAuthRepository>();
 
   bool _isLoading = false;
@@ -23,16 +28,23 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
-    _phoneController.dispose();
+    _nameController.dispose();
     super.dispose();
   }
 
-  Future<void> _sendOTP() async {
-    final phone = _phoneController.text.trim();
+  Future<void> _saveNameAndProceed() async {
+    final name = _nameController.text.trim();
 
-    if (phone.isEmpty || phone.length < 10) {
+    if (name.isEmpty) {
       setState(() {
-        _errorMessage = 'Please enter a valid mobile number';
+        _errorMessage = 'Please enter your name';
+      });
+      return;
+    }
+
+    if (name.length < 2) {
+      setState(() {
+        _errorMessage = 'Please enter a valid name (minimum 2 characters)';
       });
       return;
     }
@@ -42,22 +54,21 @@ class _LoginScreenState extends State<LoginScreen> {
       _errorMessage = null;
     });
 
-    final success = await _authRepo.sendOTP(phone);
+    // Update user profile with name
+    final updatedUser = await _authRepo.updateUserProfile(name: name);
 
     setState(() => _isLoading = false);
 
-    if (success) {
-      Navigator.push(
+    if (updatedUser != null && mounted) {
+      // Navigate to home screen
+      Navigator.pushNamedAndRemoveUntil(
         context,
-        MaterialPageRoute(
-          builder: (context) => OTPVerificationScreen(
-            phoneNumber: phone,
-          ),
-        ),
+        AppRoutes.home,
+        (route) => false,
       );
     } else {
       setState(() {
-        _errorMessage = 'Failed to send OTP. Please try again.';
+        _errorMessage = 'Failed to save name. Please try again.';
       });
     }
   }
@@ -66,18 +77,24 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
+      appBar: AppBar(
+        title: const Text('Complete Profile'),
+        backgroundColor: Colors.white,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios, size: 18),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
       body: SafeArea(
         child: SingleChildScrollView(
-          // ← FIXED: Added SingleChildScrollView
           child: Padding(
             padding: const EdgeInsets.all(24.0),
             child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                const SizedBox(height: 40), // ← Added top spacing
+                const SizedBox(height: 40),
 
-                // Logo
+                // Icon
                 Container(
                   width: 80,
                   height: 80,
@@ -85,45 +102,38 @@ class _LoginScreenState extends State<LoginScreen> {
                     gradient: const LinearGradient(
                       colors: [AppColors.primaryGreen, AppColors.primaryDark],
                     ),
-                    borderRadius: BorderRadius.circular(20),
+                    borderRadius: BorderRadius.circular(25),
                   ),
-                  child: const Center(
-                    child: Text(
-                      'T',
-                      style: TextStyle(
-                        fontSize: 40,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    ),
+                  child: const Icon(
+                    Icons.person_outline,
+                    size: 40,
+                    color: Colors.white,
                   ),
                 ),
                 const SizedBox(height: 24),
 
                 // Title
                 const Text(
-                  'Welcome to Thal-Care',
+                  'Tell us about yourself',
                   style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
                     color: AppColors.textDark,
                   ),
-                  textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 8),
 
                 // Subtitle
                 Text(
-                  'Book diagnostic tests easily',
+                  'Please enter your name to continue',
                   style: TextStyle(
                     fontSize: 14,
                     color: AppColors.textGray,
                   ),
-                  textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 48),
 
-                // Phone Input
+                // Name Input Field
                 Container(
                   decoration: BoxDecoration(
                     color: AppColors.backgroundLight,
@@ -131,17 +141,19 @@ class _LoginScreenState extends State<LoginScreen> {
                     border: Border.all(color: AppColors.borderLight),
                   ),
                   child: TextField(
-                    controller: _phoneController,
-                    keyboardType: TextInputType.phone,
+                    controller: _nameController,
+                    textCapitalization: TextCapitalization.words,
                     decoration: InputDecoration(
-                      hintText: 'Mobile Number',
-                      hintStyle:
-                          const TextStyle(color: AppColors.textLightGray),
-                      prefixIcon: const Icon(Icons.phone_android,
-                          size: 20, color: AppColors.textGray),
+                      hintText: 'Full Name',
+                      prefixIcon: const Icon(
+                        Icons.person_outline,
+                        size: 20,
+                        color: AppColors.textGray,
+                      ),
                       border: InputBorder.none,
                       contentPadding: const EdgeInsets.all(16),
                     ),
+                    onSubmitted: (_) => _saveNameAndProceed(),
                   ),
                 ),
 
@@ -153,17 +165,16 @@ class _LoginScreenState extends State<LoginScreen> {
                       fontSize: 12,
                       color: AppColors.error,
                     ),
-                    textAlign: TextAlign.center,
                   ),
                 ],
 
-                const SizedBox(height: 24),
+                const SizedBox(height: 32),
 
                 // Continue Button
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: _isLoading ? null : _sendOTP,
+                    onPressed: _isLoading ? null : _saveNameAndProceed,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primaryGreen,
                       padding: const EdgeInsets.symmetric(vertical: 14),
@@ -189,51 +200,6 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                   ),
                 ),
-
-                const SizedBox(height: 32),
-
-                // Terms
-                Wrap(
-                  alignment: WrapAlignment.center,
-                  children: [
-                    const Text(
-                      'By continuing, you agree to our ',
-                      style: TextStyle(fontSize: 11, color: AppColors.textGray),
-                    ),
-                    GestureDetector(
-                      onTap: () {
-                        // TODO: Show terms dialog
-                      },
-                      child: Text(
-                        'Terms',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: AppColors.primaryGreen,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                    const Text(
-                      ' and ',
-                      style: TextStyle(fontSize: 11, color: AppColors.textGray),
-                    ),
-                    GestureDetector(
-                      onTap: () {
-                        // TODO: Show privacy policy dialog
-                      },
-                      child: Text(
-                        'Privacy Policy',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: AppColors.primaryGreen,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 40), // ← Added bottom spacing
               ],
             ),
           ),
