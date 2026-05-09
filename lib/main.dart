@@ -15,12 +15,12 @@ Future<void> main() async {
     setupLocator();
 
     // -----------------------------
-    // 2. Supabase Initialization
+    // 2. Supabase Initialization (UPDATED WITH YOUR CREDENTIALS)
     // -----------------------------
     await Supabase.initialize(
-      url: 'YOUR_SUPABASE_URL',
-      anonKey: 'YOUR_SUPABASE_ANON_KEY',
-      debug: false,
+      url: 'https://xoxjukzbkzkskgnfjoye.supabase.co',
+      anonKey: 'sb_publishable_i5w1EONe5IqPrPJMQSONqA_kZCNJm_p',
+      debug: true,
     );
 
     // -----------------------------

@@ -4,6 +4,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:lab_system/core/themes/app_theme.dart';
+import 'package:lab_system/data/repositories/base_auth_repository.dart';
 import 'package:lab_system/presentation/screens/history/booking_detail_screen.dart';
 import 'package:lab_system/services/locator.dart';
 import 'package:lab_system/data/repositories/base_booking_repository.dart';
@@ -20,23 +21,31 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen>
     with SingleTickerProviderStateMixin {
   final BaseBookingRepository _bookingRepository =
       locator<BaseBookingRepository>();
-
+  final BaseAuthRepository _authRepo = locator<BaseAuthRepository>();
   List<BookingModel> _bookings = [];
   bool _isLoading = true;
   bool _isRefreshing = false;
-  String _userId = 'user_001'; // TODO: Get from auth
+  String _userId = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserId();
+  }
+
+  Future<void> _loadUserId() async {
+    final user = await _authRepo.getCurrentUser();
+    setState(() {
+      _userId = user?.id ?? '';
+    });
+    _loadBookings();
+  }
 
   // Define which statuses can be cancelled
   final Set<BookingStatus> _cancellableStatuses = {
     BookingStatus.pending,
     BookingStatus.confirmed,
   };
-
-  @override
-  void initState() {
-    super.initState();
-    _loadBookings();
-  }
 
   @override
   void dispose() {
@@ -56,6 +65,8 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen>
   }
 
   Future<void> _fetchBookings() async {
+    if (_userId.isEmpty) return;
+
     try {
       final bookings = await _bookingRepository.getUserBookings(_userId);
       setState(() {
