@@ -1,10 +1,8 @@
 // lib/presentation/screens/auth/login_screen.dart
-// Professional Login Screen with Mobile Number Input (Fixed Overflow)
 
 import 'package:flutter/material.dart';
 import 'package:lab_system/core/themes/app_theme.dart';
-import 'package:lab_system/services/locator.dart';
-import 'package:lab_system/data/repositories/base_auth_repository.dart';
+import 'package:lab_system/data/repositories/firebase_auth_service.dart';
 import 'package:lab_system/presentation/screens/auth/otp_verification_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -16,7 +14,7 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _phoneController = TextEditingController();
-  final BaseAuthRepository _authRepo = locator<BaseAuthRepository>();
+  final FirebaseAuthService _authService = FirebaseAuthService();
 
   bool _isLoading = false;
   String? _errorMessage;
@@ -27,12 +25,13 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  // 📲 SEND OTP (FIREBASE)
   Future<void> _sendOTP() async {
     final phone = _phoneController.text.trim();
 
     if (phone.isEmpty || phone.length < 10) {
       setState(() {
-        _errorMessage = 'Please enter a valid mobile number';
+        _errorMessage = "Please enter valid mobile number";
       });
       return;
     }
@@ -42,22 +41,20 @@ class _LoginScreenState extends State<LoginScreen> {
       _errorMessage = null;
     });
 
-    final success = await _authRepo.sendOTP(phone);
+    final success = await _authService.sendOTP(phone);
 
     setState(() => _isLoading = false);
 
-    if (success) {
+    if (success && mounted) {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => OTPVerificationScreen(
-            phoneNumber: phone,
-          ),
+          builder: (context) => OTPVerificationScreen(phoneNumber: phone),
         ),
       );
     } else {
       setState(() {
-        _errorMessage = 'Failed to send OTP. Please try again.';
+        _errorMessage = "Failed to send OTP. Try again.";
       });
     }
   }
@@ -68,174 +65,114 @@ class _LoginScreenState extends State<LoginScreen> {
       backgroundColor: Colors.white,
       body: SafeArea(
         child: SingleChildScrollView(
-          // ← FIXED: Added SingleChildScrollView
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                const SizedBox(height: 40), // ← Added top spacing
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            children: [
+              const SizedBox(height: 60),
 
-                // Logo
-                Container(
-                  width: 80,
-                  height: 80,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [AppColors.primaryGreen, AppColors.primaryDark],
-                    ),
-                    borderRadius: BorderRadius.circular(20),
+              // 🔵 LOGO
+              Container(
+                width: 90,
+                height: 90,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [AppColors.primaryGreen, AppColors.primaryDark],
                   ),
-                  child: const Center(
-                    child: Text(
-                      'T',
-                      style: TextStyle(
-                        fontSize: 40,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: const Center(
+                  child: Text(
+                    "T",
+                    style: TextStyle(
+                      fontSize: 40,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
                     ),
                   ),
                 ),
-                const SizedBox(height: 24),
+              ),
 
-                // Title
-                const Text(
-                  'Welcome to Thal-Care',
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.textDark,
-                  ),
-                  textAlign: TextAlign.center,
+              const SizedBox(height: 25),
+
+              const Text(
+                "Welcome to Thal-Care",
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
                 ),
-                const SizedBox(height: 8),
+              ),
 
-                // Subtitle
+              const SizedBox(height: 6),
+
+              const Text(
+                "Book diagnostic tests easily",
+                style: TextStyle(color: Colors.grey),
+              ),
+
+              const SizedBox(height: 40),
+
+              // 📱 PHONE INPUT
+              Container(
+                decoration: BoxDecoration(
+                  color: AppColors.backgroundLight,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: AppColors.borderLight),
+                ),
+                child: TextField(
+                  controller: _phoneController,
+                  keyboardType: TextInputType.phone,
+                  decoration: const InputDecoration(
+                    hintText: "Mobile Number",
+                    prefixIcon: Icon(Icons.phone_android),
+                    border: InputBorder.none,
+                    contentPadding: EdgeInsets.all(16),
+                  ),
+                ),
+              ),
+
+              if (_errorMessage != null) ...[
+                const SizedBox(height: 10),
                 Text(
-                  'Book diagnostic tests easily',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: AppColors.textGray,
-                  ),
-                  textAlign: TextAlign.center,
+                  _errorMessage!,
+                  style: const TextStyle(color: Colors.red),
                 ),
-                const SizedBox(height: 48),
-
-                // Phone Input
-                Container(
-                  decoration: BoxDecoration(
-                    color: AppColors.backgroundLight,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: AppColors.borderLight),
-                  ),
-                  child: TextField(
-                    controller: _phoneController,
-                    keyboardType: TextInputType.phone,
-                    decoration: InputDecoration(
-                      hintText: 'Mobile Number',
-                      hintStyle:
-                          const TextStyle(color: AppColors.textLightGray),
-                      prefixIcon: const Icon(Icons.phone_android,
-                          size: 20, color: AppColors.textGray),
-                      border: InputBorder.none,
-                      contentPadding: const EdgeInsets.all(16),
-                    ),
-                  ),
-                ),
-
-                if (_errorMessage != null) ...[
-                  const SizedBox(height: 12),
-                  Text(
-                    _errorMessage!,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: AppColors.error,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-
-                const SizedBox(height: 24),
-
-                // Continue Button
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: _isLoading ? null : _sendOTP,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primaryGreen,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                    ),
-                    child: _isLoading
-                        ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Text(
-                            'Continue',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                  ),
-                ),
-
-                const SizedBox(height: 32),
-
-                // Terms
-                Wrap(
-                  alignment: WrapAlignment.center,
-                  children: [
-                    const Text(
-                      'By continuing, you agree to our ',
-                      style: TextStyle(fontSize: 11, color: AppColors.textGray),
-                    ),
-                    GestureDetector(
-                      onTap: () {
-                        // TODO: Show terms dialog
-                      },
-                      child: Text(
-                        'Terms',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: AppColors.primaryGreen,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                    const Text(
-                      ' and ',
-                      style: TextStyle(fontSize: 11, color: AppColors.textGray),
-                    ),
-                    GestureDetector(
-                      onTap: () {
-                        // TODO: Show privacy policy dialog
-                      },
-                      child: Text(
-                        'Privacy Policy',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: AppColors.primaryGreen,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 40), // ← Added bottom spacing
               ],
-            ),
+
+              const SizedBox(height: 25),
+
+              // 🔘 BUTTON
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _isLoading ? null : _sendOTP,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primaryGreen,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  child: _isLoading
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : const Text(
+                          "Continue",
+                          style: TextStyle(fontSize: 16),
+                        ),
+                ),
+              ),
+
+              const SizedBox(height: 30),
+
+              // 📜 TERMS
+              const Text(
+                "By continuing, you agree to Terms & Privacy Policy",
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Colors.grey,
+                ),
+              ),
+            ],
           ),
         ),
       ),

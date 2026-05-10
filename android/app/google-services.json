@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "120312976344",
+    "project_id": "thalcare-b530b",
+    "storage_bucket": "thalcare-b530b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:120312976344:android:ef766700db5a8372b018ad",
+        "android_client_info": {
+          "package_name": "com.example.lab_system"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDynnDvbQWdaIhBM0ze8KPofX9l39kyduY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
