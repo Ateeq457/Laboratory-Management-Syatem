@@ -1,5 +1,5 @@
 // lib/presentation/screens/profile/profile_screen.dart
-// Fully Dynamic Profile Screen - Works with JSON & Supabase
+// Simplified Profile Screen - Name Edit + Logout only
 
 import 'package:flutter/material.dart';
 import 'package:lab_system/core/themes/app_theme.dart';
@@ -23,13 +23,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   UserModel? _user;
   bool _isLoading = true;
-  String? _errorMessage;
+  bool _isEditing = false;
+  final TextEditingController _nameController = TextEditingController();
 
   // Stats
   int _totalBookings = 0;
   int _completedBookings = 0;
   int _activeBookings = 0;
-  int _cancelledBookings = 0;
 
   @override
   void initState() {
@@ -37,29 +37,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _loadUserData();
   }
 
+  @override
+  void dispose() {
+    _nameController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadUserData() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
+    setState(() => _isLoading = true);
 
     try {
-      // Load user from auth repository
       final user = await _authRepo.getCurrentUser();
-
-      // Load bookings for stats
       if (user != null) {
         final bookings = await _bookingRepo.getUserBookings(user.id);
         _calculateStats(bookings);
       }
-
       setState(() {
         _user = user;
+        _nameController.text = user?.name ?? '';
         _isLoading = false;
       });
     } catch (e) {
       setState(() {
-        _errorMessage = 'Failed to load profile data';
         _isLoading = false;
       });
       debugPrint('Error loading profile: $e');
@@ -77,33 +76,57 @@ class _ProfileScreenState extends State<ProfileScreen> {
             b.status == BookingStatus.sampleCollected ||
             b.status == BookingStatus.processing)
         .length;
-    _cancelledBookings =
-        bookings.where((b) => b.status == BookingStatus.cancelled).length;
+  }
+
+  Future<void> _updateName() async {
+    final newName = _nameController.text.trim();
+    if (newName.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Name cannot be empty')),
+      );
+      return;
+    }
+
+    if (newName == _user?.name) {
+      setState(() => _isEditing = false);
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    final updatedUser = await _authRepo.updateUserProfile(name: newName);
+
+    setState(() {
+      _user = updatedUser;
+      _isLoading = false;
+      _isEditing = false;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Name updated successfully!'),
+        backgroundColor: AppColors.success,
+      ),
+    );
   }
 
   Future<void> _logout() async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text('Logout'),
         content: const Text('Are you sure you want to logout?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text(
-              'Cancel',
-              style: TextStyle(color: AppColors.textGray),
-            ),
+            child: const Text('Cancel',
+                style: TextStyle(color: AppColors.textGray)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text(
-              'Logout',
-              style: TextStyle(color: AppColors.error),
-            ),
+            child:
+                const Text('Logout', style: TextStyle(color: AppColors.error)),
           ),
         ],
       ),
@@ -122,72 +145,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  void _navigateToPersonalInfo() {
-    // TODO: Navigate to edit profile screen
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Edit Profile - Coming Soon'),
-        duration: Duration(seconds: 2),
-      ),
-    );
-  }
-
-  void _navigateToSavedAddresses() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Saved Addresses - Coming Soon'),
-        duration: Duration(seconds: 2),
-      ),
-    );
-  }
-
-  void _navigateToNotifications() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Notifications Settings - Coming Soon'),
-        duration: Duration(seconds: 2),
-      ),
-    );
-  }
-
-  void _showPrivacyPolicy() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
-        title: const Text('Privacy Policy'),
-        content: const SingleChildScrollView(
-          child: Text(
-            'Your privacy is important to us. This Privacy Policy explains how we collect, use, and protect your personal information when you use our app.\n\n'
-            '1. Information we collect: Phone number, name, address, and test records.\n'
-            '2. How we use your information: To provide diagnostic services, process bookings, and deliver reports.\n'
-            '3. Data security: We use industry-standard encryption to protect your data.\n'
-            '4. Your rights: You can request deletion of your data at any time.\n\n'
-            'For any questions, contact us at support@thal-care.com',
-            style: TextStyle(fontSize: 13),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.backgroundLight,
       appBar: AppBar(
-        title: const Text(
-          'Profile',
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-        ),
+        title: const Text('Profile',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
         backgroundColor: Colors.white,
         elevation: 0,
         centerTitle: false,
@@ -201,25 +165,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
             }
           },
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.settings, color: AppColors.primaryGreen),
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Settings - Coming Soon'),
-                  duration: Duration(seconds: 2),
-                ),
-              );
-            },
-          ),
-        ],
       ),
       body: _isLoading
           ? _buildLoadingState()
-          : _errorMessage != null
-              ? _buildErrorState()
-              : _buildProfileContent(),
+          : SingleChildScrollView(
+              child: Column(
+                children: [
+                  const SizedBox(height: 30),
+                  _buildAvatarSection(),
+                  const SizedBox(height: 24),
+                  _buildStatsSection(),
+                  const SizedBox(height: 24),
+                  _buildActionButtons(),
+                  const SizedBox(height: 40),
+                  _buildVersionInfo(),
+                  const SizedBox(height: 20),
+                ],
+              ),
+            ),
     );
   }
 
@@ -230,52 +193,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         children: [
           CircularProgressIndicator(color: AppColors.primaryGreen),
           SizedBox(height: 16),
-          Text(
-            'Loading profile...',
-            style: TextStyle(color: AppColors.textGray),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildErrorState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.error_outline, size: 48, color: AppColors.error),
-          const SizedBox(height: 16),
-          Text(
-            _errorMessage!,
-            style: const TextStyle(color: AppColors.textGray),
-          ),
-          const SizedBox(height: 16),
-          ElevatedButton(
-            onPressed: _loadUserData,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primaryGreen,
-            ),
-            child: const Text('Retry'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildProfileContent() {
-    return SingleChildScrollView(
-      child: Column(
-        children: [
-          const SizedBox(height: 20),
-          _buildAvatarSection(),
-          const SizedBox(height: 24),
-          _buildStatsSection(),
-          const SizedBox(height: 24),
-          _buildProfileOptions(),
-          const SizedBox(height: 30),
-          _buildVersionInfo(),
-          const SizedBox(height: 20),
+          Text('Loading profile...',
+              style: TextStyle(color: AppColors.textGray)),
         ],
       ),
     );
@@ -285,7 +204,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final userName = _user?.name ?? 'Guest User';
     final userPhone = _user?.phone ?? 'Not provided';
 
-    // Get initials from name
     String initials = 'U';
     if (userName.isNotEmpty && userName != 'Guest User') {
       final nameParts = userName.split(' ');
@@ -303,63 +221,79 @@ class _ProfileScreenState extends State<ProfileScreen> {
           height: 100,
           decoration: BoxDecoration(
             gradient: const LinearGradient(
-              colors: [AppColors.primaryGreen, AppColors.primaryMid],
-            ),
+                colors: [AppColors.primaryGreen, AppColors.primaryMid]),
             shape: BoxShape.circle,
             boxShadow: [
               BoxShadow(
-                color: AppColors.primaryGreen.withOpacity(0.3),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
+                  color: AppColors.primaryGreen.withOpacity(0.3),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4))
             ],
           ),
           child: Center(
-            child: Text(
-              initials,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 32,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
+              child: Text(initials,
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 32,
+                      fontWeight: FontWeight.w600))),
         ),
         const SizedBox(height: 16),
-        Text(
-          userName,
-          style: const TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.w600,
-            color: AppColors.textDark,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          userPhone,
-          style: const TextStyle(
-            fontSize: 14,
-            color: AppColors.textGray,
-          ),
-        ),
-        const SizedBox(height: 12),
-        OutlinedButton(
-          onPressed: _navigateToPersonalInfo,
-          style: OutlinedButton.styleFrom(
-            side: const BorderSide(color: AppColors.primaryGreen),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20),
+
+        // Editable Name Field
+        if (_isEditing)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 40),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _nameController,
+                    decoration: InputDecoration(
+                      hintText: 'Enter your name',
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 10),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: const Icon(Icons.check, color: AppColors.success),
+                  onPressed: _updateName,
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, color: AppColors.error),
+                  onPressed: () {
+                    setState(() {
+                      _isEditing = false;
+                      _nameController.text = _user?.name ?? '';
+                    });
+                  },
+                ),
+              ],
             ),
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          ),
-          child: const Text(
-            'Edit Profile',
-            style: TextStyle(
-              fontSize: 12,
-              color: AppColors.primaryGreen,
+          )
+        else
+          GestureDetector(
+            onTap: () => setState(() => _isEditing = true),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(userName,
+                    style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textDark)),
+                const SizedBox(width: 8),
+                const Icon(Icons.edit, size: 16, color: AppColors.primaryGreen),
+              ],
             ),
           ),
-        ),
+
+        const SizedBox(height: 8),
+        Text(userPhone,
+            style: const TextStyle(fontSize: 14, color: AppColors.textGray)),
       ],
     );
   }
@@ -393,135 +327,58 @@ class _ProfileScreenState extends State<ProfileScreen> {
       children: [
         Icon(icon, size: 18, color: AppColors.primaryGreen),
         const SizedBox(height: 4),
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: AppColors.primaryGreen,
-          ),
-        ),
+        Text(value,
+            style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: AppColors.primaryGreen)),
         const SizedBox(height: 2),
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 10,
-            color: AppColors.textGray,
-          ),
-        ),
+        Text(label,
+            style: const TextStyle(fontSize: 10, color: AppColors.textGray)),
       ],
     );
   }
 
   Widget _buildVerticalDivider() {
-    return Container(
-      width: 1,
-      height: 40,
-      color: AppColors.borderLight,
-    );
+    return Container(width: 1, height: 40, color: AppColors.borderLight);
   }
 
-  Widget _buildProfileOptions() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.borderLight),
-      ),
+  Widget _buildActionButtons() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Column(
         children: [
-          _buildProfileOption(
-            icon: Icons.person_outline,
-            title: 'Personal Information',
-            onTap: _navigateToPersonalInfo,
-          ),
-          _buildDivider(),
-          _buildProfileOption(
-            icon: Icons.location_on_outlined,
-            title: 'Saved Addresses',
-            onTap: _navigateToSavedAddresses,
-          ),
-          _buildDivider(),
-          _buildProfileOption(
-            icon: Icons.notifications_none,
-            title: 'Notifications',
-            onTap: _navigateToNotifications,
-          ),
-          _buildDivider(),
-          _buildProfileOption(
-            icon: Icons.security,
-            title: 'Privacy Policy',
-            onTap: _showPrivacyPolicy,
-          ),
-          _buildDivider(),
-          _buildProfileOption(
-            icon: Icons.logout,
-            title: 'Logout',
-            onTap: _logout,
-            isLogout: true,
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton(
+              onPressed: _logout,
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: AppColors.error),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14)),
+              ),
+              child: const Text('Logout',
+                  style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.error)),
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildProfileOption({
-    required IconData icon,
-    required String title,
-    required VoidCallback onTap,
-    bool isLogout = false,
-  }) {
-    return ListTile(
-      leading: Icon(
-        icon,
-        color: isLogout ? AppColors.error : AppColors.primaryGreen,
-        size: 22,
-      ),
-      title: Text(
-        title,
-        style: TextStyle(
-          fontSize: 15,
-          fontWeight: FontWeight.w500,
-          color: isLogout ? AppColors.error : AppColors.textDark,
-        ),
-      ),
-      trailing: Icon(
-        Icons.chevron_right,
-        color: isLogout ? AppColors.error : AppColors.textLightGray,
-        size: 20,
-      ),
-      onTap: onTap,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-    );
-  }
-
-  Widget _buildDivider() {
-    return Divider(
-      height: 0,
-      thickness: 0.5,
-      color: AppColors.borderLight,
-    );
-  }
-
   Widget _buildVersionInfo() {
     return Column(
       children: [
-        const Text(
-          'Version 1.0.0',
-          style: TextStyle(
-            fontSize: 11,
-            color: AppColors.textLightGray,
-          ),
-        ),
+        const Text('Version 1.0.0',
+            style: TextStyle(fontSize: 11, color: AppColors.textLightGray)),
         const SizedBox(height: 4),
-        Text(
-          '© 2024 Thal-Care Diagnostic Services',
-          style: TextStyle(
-            fontSize: 10,
-            color: AppColors.textLightGray.withOpacity(0.7),
-          ),
-        ),
+        Text('© 2024 Thal-Care Diagnostic Services',
+            style: TextStyle(
+                fontSize: 10, color: AppColors.textLightGray.withOpacity(0.7))),
       ],
     );
   }

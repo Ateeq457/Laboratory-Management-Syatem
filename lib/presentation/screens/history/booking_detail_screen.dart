@@ -1,10 +1,14 @@
 // lib/presentation/screens/history/booking_detail_screen.dart
-// Professional Booking Detail Screen
+// Professional Booking Detail Screen with Download
 
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:lab_system/core/themes/app_theme.dart';
 import 'package:lab_system/data/models/booking_model.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:open_file/open_file.dart';
 
 class BookingDetailScreen extends StatefulWidget {
   final BookingModel booking;
@@ -22,6 +26,8 @@ class _BookingDetailScreenState extends State<BookingDetailScreen>
     with SingleTickerProviderStateMixin {
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
+  final _supabase = Supabase.instance.client;
+  bool _isDownloading = false;
 
   @override
   void initState() {
@@ -42,14 +48,70 @@ class _BookingDetailScreenState extends State<BookingDetailScreen>
     super.dispose();
   }
 
-  void _downloadReport() {
+  // ── Download Report Logic ─────────────────────────────────────────────────
+
+  Future<void> _downloadReport() async {
+    if (_isDownloading) {
+      toast('Download already in progress...');
+      return;
+    }
+
+    setState(() => _isDownloading = true);
+
+    try {
+      toast('Starting download...');
+
+      // First, check if report exists in reports table
+      final reportResponse = await _supabase
+          .from('reports')
+          .select('file_url, file_name')
+          .eq('booking_id', widget.booking.id)
+          .maybeSingle();
+
+      if (reportResponse == null) {
+        toast('No report found for this booking');
+        return;
+      }
+
+      final fileUrl = reportResponse['file_url'];
+      final fileName = reportResponse['file_name'] ?? 'report.pdf';
+
+      // Download file from Supabase storage
+      final response =
+          await _supabase.storage.from('reports').download(fileUrl);
+
+      if (response == null) {
+        throw Exception('Failed to download file');
+      }
+
+      // Save to device
+      final directory = await getApplicationDocumentsDirectory();
+      final filePath = '${directory.path}/$fileName';
+      final file = File(filePath);
+      await file.writeAsBytes(response);
+
+      toast('Download complete!');
+
+      // Open the file
+      await OpenFile.open(filePath);
+    } catch (e) {
+      print('❌ Download error: $e');
+      toast('Download failed: ${e.toString()}');
+    } finally {
+      setState(() => _isDownloading = false);
+    }
+  }
+
+  void toast(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Download started...'),
-        duration: Duration(seconds: 2),
+      SnackBar(
+        content: Text(message),
+        duration: const Duration(seconds: 2),
       ),
     );
   }
+
+  // ── Formatting Methods ───────────────────────────────────────────────────
 
   String _formatDate(DateTime date) {
     return DateFormat('EEEE, MMMM dd, yyyy').format(date);
@@ -173,8 +235,6 @@ class _BookingDetailScreenState extends State<BookingDetailScreen>
       final step = entry.value;
       final isCompleted = index <= currentIndex;
       final isCurrent = index == currentIndex;
-
-      // Fix: Explicitly cast step['status'] to BookingStatus
       final stepStatus = step['status'] as BookingStatus;
 
       return {
@@ -189,12 +249,9 @@ class _BookingDetailScreenState extends State<BookingDetailScreen>
 
   String? _getStepDateTime(
       BookingStatus currentStatus, BookingStatus stepStatus) {
-    if (stepStatus == currentStatus) {
-      return 'In Progress';
-    }
-    if (stepStatus == BookingStatus.pending) {
+    if (stepStatus == currentStatus) return 'In Progress';
+    if (stepStatus == BookingStatus.pending)
       return _formatDate(widget.booking.createdAt);
-    }
     if (stepStatus == BookingStatus.sampleCollected &&
         widget.booking.sampleCollectedAt != null) {
       return _formatDate(widget.booking.sampleCollectedAt!);
@@ -210,16 +267,15 @@ class _BookingDetailScreenState extends State<BookingDetailScreen>
   Widget build(BuildContext context) {
     final statusConfig = _getStatusConfig(widget.booking.status);
     final progress = statusConfig['progress'] as int;
-    final isReportReady = widget.booking.status == BookingStatus.reportReady;
+    final canDownload = widget.booking.status == BookingStatus.reportReady ||
+        widget.booking.status == BookingStatus.completed;
     final isCancelled = widget.booking.status == BookingStatus.cancelled;
 
     return Scaffold(
       backgroundColor: AppColors.backgroundLight,
       appBar: AppBar(
-        title: const Text(
-          'Booking Details',
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-        ),
+        title: const Text('Booking Details',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
         backgroundColor: Colors.white,
         elevation: 0,
         centerTitle: false,
@@ -235,32 +291,16 @@ class _BookingDetailScreenState extends State<BookingDetailScreen>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Status Card
               _buildStatusCard(statusConfig, progress, isCancelled),
-
               const SizedBox(height: 20),
-
-              // Booking Info Card
               _buildBookingInfoCard(),
-
               const SizedBox(height: 20),
-
-              // Test Details Card
               _buildTestDetailsCard(),
-
               const SizedBox(height: 20),
-
-              // Timeline Card
               _buildTimelineCard(),
-
               const SizedBox(height: 20),
-
-              // Action Button
-              if (widget.booking.status == BookingStatus.reportReady ||
-                  widget.booking.status == BookingStatus.completed)
-                _buildDownloadButton(),
+              if (canDownload) _buildDownloadButton(),
               if (isCancelled) _buildBookAgainButton(),
-
               const SizedBox(height: 30),
             ],
           ),
@@ -304,36 +344,24 @@ class _BookingDetailScreenState extends State<BookingDetailScreen>
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  statusConfig['icon'],
-                  color: Colors.white,
-                  size: 24,
-                ),
+                    color: Colors.white.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(12)),
+                child:
+                    Icon(statusConfig['icon'], color: Colors.white, size: 24),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Current Status',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.white70,
-                      ),
-                    ),
+                    const Text('Current Status',
+                        style: TextStyle(fontSize: 12, color: Colors.white70)),
                     const SizedBox(height: 4),
-                    Text(
-                      statusConfig['label'],
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    ),
+                    Text(statusConfig['label'],
+                        style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white)),
                   ],
                 ),
               ),
@@ -344,21 +372,14 @@ class _BookingDetailScreenState extends State<BookingDetailScreen>
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  'Progress',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.white.withOpacity(0.8),
-                  ),
-                ),
-                Text(
-                  '$progress%',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white,
-                  ),
-                ),
+                Text('Progress',
+                    style: TextStyle(
+                        fontSize: 12, color: Colors.white.withOpacity(0.8))),
+                Text('$progress%',
+                    style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white)),
               ],
             ),
             const SizedBox(height: 8),
@@ -376,26 +397,18 @@ class _BookingDetailScreenState extends State<BookingDetailScreen>
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(10),
-            ),
+                color: Colors.white.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(10)),
             child: Row(
               children: [
-                Icon(
-                  Icons.info_outline,
-                  size: 16,
-                  color: Colors.white.withOpacity(0.8),
-                ),
+                Icon(Icons.info_outline,
+                    size: 16, color: Colors.white.withOpacity(0.8)),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(
-                    statusConfig['description'],
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.white.withOpacity(0.9),
-                    ),
-                  ),
-                ),
+                    child: Text(statusConfig['description'],
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.white.withOpacity(0.9)))),
               ],
             ),
           ),
@@ -414,10 +427,9 @@ class _BookingDetailScreenState extends State<BookingDetailScreen>
         border: Border.all(color: AppColors.borderLight),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.02),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
+              color: Colors.black.withOpacity(0.02),
+              blurRadius: 8,
+              offset: const Offset(0, 2))
         ],
       ),
       child: Column(
@@ -427,10 +439,8 @@ class _BookingDetailScreenState extends State<BookingDetailScreen>
             children: [
               Icon(Icons.info_outline, size: 20, color: AppColors.primaryGreen),
               const SizedBox(width: 8),
-              const Text(
-                'Booking Information',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-              ),
+              const Text('Booking Information',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
             ],
           ),
           const Divider(height: 24),
@@ -454,10 +464,9 @@ class _BookingDetailScreenState extends State<BookingDetailScreen>
         border: Border.all(color: AppColors.borderLight),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.02),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
+              color: Colors.black.withOpacity(0.02),
+              blurRadius: 8,
+              offset: const Offset(0, 2))
         ],
       ),
       child: Column(
@@ -468,10 +477,8 @@ class _BookingDetailScreenState extends State<BookingDetailScreen>
               Icon(Icons.medical_services,
                   size: 20, color: AppColors.primaryGreen),
               const SizedBox(width: 8),
-              const Text(
-                'Test Details',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-              ),
+              const Text('Test Details',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
             ],
           ),
           const Divider(height: 24),
@@ -510,10 +517,9 @@ class _BookingDetailScreenState extends State<BookingDetailScreen>
         border: Border.all(color: AppColors.borderLight),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.02),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
+              color: Colors.black.withOpacity(0.02),
+              blurRadius: 8,
+              offset: const Offset(0, 2))
         ],
       ),
       child: Column(
@@ -523,10 +529,8 @@ class _BookingDetailScreenState extends State<BookingDetailScreen>
             children: [
               Icon(Icons.timeline, size: 20, color: AppColors.primaryGreen),
               const SizedBox(width: 8),
-              const Text(
-                'Booking Timeline',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-              ),
+              const Text('Booking Timeline',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
             ],
           ),
           const Divider(height: 24),
@@ -534,19 +538,16 @@ class _BookingDetailScreenState extends State<BookingDetailScreen>
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: AppColors.error.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
-              ),
+                  color: AppColors.error.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10)),
               child: const Row(
                 children: [
                   Icon(Icons.cancel, size: 18, color: AppColors.error),
                   SizedBox(width: 8),
                   Expanded(
-                    child: Text(
-                      'This booking has been cancelled',
-                      style: TextStyle(fontSize: 13, color: AppColors.error),
-                    ),
-                  ),
+                      child: Text('This booking has been cancelled',
+                          style:
+                              TextStyle(fontSize: 13, color: AppColors.error))),
                 ],
               ),
             )
@@ -556,7 +557,6 @@ class _BookingDetailScreenState extends State<BookingDetailScreen>
                 final index = entry.key;
                 final step = entry.value;
                 final isLast = index == steps.length - 1;
-
                 return _buildTimelineStep(
                   title: step['title'],
                   icon: step['icon'],
@@ -594,26 +594,22 @@ class _BookingDetailScreenState extends State<BookingDetailScreen>
                     : AppColors.backgroundLight,
                 shape: BoxShape.circle,
                 border: Border.all(
-                  color: isCompleted
-                      ? AppColors.primaryGreen
-                      : AppColors.borderLight,
-                  width: 2,
-                ),
+                    color: isCompleted
+                        ? AppColors.primaryGreen
+                        : AppColors.borderLight,
+                    width: 2),
               ),
-              child: Icon(
-                icon,
-                size: 16,
-                color: isCompleted ? Colors.white : AppColors.textLightGray,
-              ),
+              child: Icon(icon,
+                  size: 16,
+                  color: isCompleted ? Colors.white : AppColors.textLightGray),
             ),
             if (!isLast)
               Container(
-                width: 2,
-                height: 50,
-                color: isCompleted
-                    ? AppColors.primaryGreen
-                    : AppColors.borderLight,
-              ),
+                  width: 2,
+                  height: 50,
+                  color: isCompleted
+                      ? AppColors.primaryGreen
+                      : AppColors.borderLight),
           ],
         ),
         const SizedBox(width: 12),
@@ -623,24 +619,19 @@ class _BookingDetailScreenState extends State<BookingDetailScreen>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: isCurrent ? FontWeight.bold : FontWeight.w500,
-                    color:
-                        isCompleted ? AppColors.textDark : AppColors.textGray,
-                  ),
-                ),
+                Text(title,
+                    style: TextStyle(
+                        fontSize: 14,
+                        fontWeight:
+                            isCurrent ? FontWeight.bold : FontWeight.w500,
+                        color: isCompleted
+                            ? AppColors.textDark
+                            : AppColors.textGray)),
                 if (dateTime != null) ...[
                   const SizedBox(height: 4),
-                  Text(
-                    dateTime,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: AppColors.textLightGray,
-                    ),
-                  ),
+                  Text(dateTime,
+                      style: const TextStyle(
+                          fontSize: 11, color: AppColors.textLightGray))
                 ],
                 if (isCurrent)
                   Padding(
@@ -649,17 +640,13 @@ class _BookingDetailScreenState extends State<BookingDetailScreen>
                       padding: const EdgeInsets.symmetric(
                           horizontal: 8, vertical: 2),
                       decoration: BoxDecoration(
-                        color: AppColors.primaryGreen.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: const Text(
-                        'Current',
-                        style: TextStyle(
-                          fontSize: 9,
-                          color: AppColors.primaryGreen,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
+                          color: AppColors.primaryGreen.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(4)),
+                      child: const Text('Current',
+                          style: TextStyle(
+                              fontSize: 9,
+                              color: AppColors.primaryGreen,
+                              fontWeight: FontWeight.w500)),
                     ),
                   ),
               ],
@@ -676,28 +663,19 @@ class _BookingDetailScreenState extends State<BookingDetailScreen>
           multiLine ? CrossAxisAlignment.start : CrossAxisAlignment.center,
       children: [
         SizedBox(
-          width: 100,
-          child: Text(
-            label,
-            style: const TextStyle(
-              fontSize: 13,
-              color: AppColors.textGray,
-            ),
-          ),
-        ),
+            width: 100,
+            child: Text(label,
+                style:
+                    const TextStyle(fontSize: 13, color: AppColors.textGray))),
         const SizedBox(width: 12),
         Expanded(
-          child: Text(
-            value,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-              color: AppColors.textDark,
-            ),
-            maxLines: multiLine ? 3 : 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
+            child: Text(value,
+                style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: AppColors.textDark),
+                maxLines: multiLine ? 3 : 1,
+                overflow: TextOverflow.ellipsis)),
       ],
     );
   }
@@ -706,25 +684,29 @@ class _BookingDetailScreenState extends State<BookingDetailScreen>
     return SizedBox(
       width: double.infinity,
       child: ElevatedButton(
-        onPressed: _downloadReport,
+        onPressed: _isDownloading ? null : _downloadReport,
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.primaryGreen,
           padding: const EdgeInsets.symmetric(vertical: 14),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         ),
-        child: const Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.download, size: 20),
-            SizedBox(width: 8),
-            Text(
-              'Download Report',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-            ),
-          ],
-        ),
+        child: _isDownloading
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2, color: Colors.white))
+            : const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.download, size: 20),
+                  SizedBox(width: 8),
+                  Text('Download Report',
+                      style:
+                          TextStyle(fontSize: 16, fontWeight: FontWeight.w600))
+                ],
+              ),
       ),
     );
   }
@@ -733,28 +715,23 @@ class _BookingDetailScreenState extends State<BookingDetailScreen>
     return SizedBox(
       width: double.infinity,
       child: OutlinedButton(
-        onPressed: () {
-          Navigator.pushNamed(context, '/tests');
-        },
+        onPressed: () => Navigator.pushNamed(context, '/tests'),
         style: OutlinedButton.styleFrom(
           side: const BorderSide(color: AppColors.primaryGreen),
           padding: const EdgeInsets.symmetric(vertical: 14),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         ),
         child: const Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(Icons.refresh, size: 20, color: AppColors.primaryGreen),
             SizedBox(width: 8),
-            Text(
-              'Book Again',
-              style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.primaryGreen),
-            ),
+            Text('Book Again',
+                style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.primaryGreen)),
           ],
         ),
       ),

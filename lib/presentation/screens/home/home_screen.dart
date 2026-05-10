@@ -1,14 +1,13 @@
 // lib/presentation/screens/home/home_screen.dart
-// Professional Home Screen with View All Bottom Sheet
+// Professional Home Screen - Clean & Minimal
 
 import 'package:flutter/material.dart';
 import 'package:lab_system/core/themes/app_theme.dart';
 import 'package:lab_system/core/routes/app_routes.dart';
+import 'package:lab_system/data/repositories/base_auth_repository.dart';
 import 'package:lab_system/services/locator.dart';
 import 'package:lab_system/data/repositories/base_test_repository.dart';
 import 'package:lab_system/data/models/test_model.dart';
-import 'package:lab_system/data/models/location_model.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -20,11 +19,11 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final BaseTestRepository _testRepository = locator<BaseTestRepository>();
 
-  LocationModel? _selectedLocation;
   List<TestModel> _allTests = [];
   List<TestModel> _displayTests = [];
   bool _isLoading = true;
   bool _isError = false;
+  String _userName = '';
 
   final List<Map<String, dynamic>> _categories = [
     {
@@ -49,48 +48,15 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _loadTests();
-    _loadSavedLocation();
+    _loadUserName();
   }
 
-  Future<void> _loadSavedLocation() async {
-    final prefs = await SharedPreferences.getInstance();
-    final savedId = prefs.getString('selected_sector_id');
-    if (savedId != null) {
-      final sectors = LocationModel.getSectors();
-      setState(() {
-        _selectedLocation = sectors.firstWhere(
-          (loc) => loc.id == savedId,
-          orElse: () => sectors.first,
-        );
-      });
-    } else {
-      setState(() {
-        _selectedLocation = LocationModel.getSectors().first;
-      });
-    }
-  }
-
-  Future<void> _saveLocation(LocationModel location) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('selected_sector_id', location.id);
-  }
-
-  void _showLocationPicker() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => LocationPickerSheet(
-        selectedLocation: _selectedLocation,
-        onLocationSelected: (location) {
-          setState(() {
-            _selectedLocation = location;
-          });
-          _saveLocation(location);
-          Navigator.pop(context);
-        },
-      ),
-    );
+  Future<void> _loadUserName() async {
+    final authRepo = locator<BaseAuthRepository>();
+    final user = await authRepo.getCurrentUser();
+    setState(() {
+      _userName = user?.name?.split(' ').first ?? 'Guest';
+    });
   }
 
   Future<void> _loadTests() async {
@@ -102,7 +68,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final tests = await _testRepository.getTests();
       setState(() {
         _allTests = tests;
-        _displayTests = tests.take(5).toList(); // Only show first 5
+        _displayTests = tests.take(5).toList();
         _isLoading = false;
       });
     } catch (e) {
@@ -135,7 +101,6 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               child: Column(
                 children: [
-                  // Drag Handle
                   Container(
                     margin: const EdgeInsets.only(top: 12),
                     width: 40,
@@ -146,15 +111,12 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  // Header
                   const Padding(
                     padding: EdgeInsets.symmetric(horizontal: 20),
                     child: Text(
                       'All Available Tests',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
+                      style:
+                          TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -163,13 +125,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: Text(
                       '${_allTests.length} tests available',
                       style: const TextStyle(
-                        fontSize: 13,
-                        color: AppColors.textGray,
-                      ),
+                          fontSize: 13, color: AppColors.textGray),
                     ),
                   ),
                   const SizedBox(height: 16),
-                  // Search Bar (Optional)
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: TextField(
@@ -189,7 +148,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  // Tests List
                   Expanded(
                     child: ListView.builder(
                       controller: scrollController,
@@ -299,12 +257,12 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  void _navigateToTestList() {
+    Navigator.pushNamed(context, AppRoutes.testList);
+  }
+
   void _navigateToTestDetail(TestModel test) {
-    Navigator.pushNamed(
-      context,
-      AppRoutes.testDetail,
-      arguments: test,
-    );
+    Navigator.pushNamed(context, AppRoutes.testDetail, arguments: test);
   }
 
   void _navigateToOrders() {
@@ -315,17 +273,13 @@ class _HomeScreenState extends State<HomeScreen> {
     Navigator.pushNamed(context, AppRoutes.reports);
   }
 
-  void _navigateToTestList() {
-    Navigator.pushNamed(context, AppRoutes.testList);
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.backgroundLight,
       body: CustomScrollView(
         slivers: [
-          // Custom AppBar
+          // Custom AppBar - UPDATED
           SliverAppBar(
             pinned: true,
             elevation: 0,
@@ -367,24 +321,23 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
             actions: [
-              IconButton(
-                icon: const Icon(Icons.notifications_none, size: 20),
-                onPressed: () => _showNotificationsDialog(context),
-              ),
+              // Profile Avatar - REPLACED with icon
               Container(
                 width: 34,
                 height: 34,
                 decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                      colors: [AppColors.primaryGreen, AppColors.primaryMid]),
-                  borderRadius: BorderRadius.circular(17),
+                  color: AppColors.backgroundLight,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: AppColors.borderLight),
                 ),
-                child: const Center(
-                    child: Text('AS',
-                        style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 12))),
+                child: IconButton(
+                  padding: EdgeInsets.zero,
+                  icon: Icon(Icons.person_outline,
+                      size: 18, color: AppColors.primaryGreen),
+                  onPressed: () {
+                    Navigator.pushNamed(context, AppRoutes.profile);
+                  },
+                ),
               ),
               const SizedBox(width: 8),
             ],
@@ -394,19 +347,27 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Hero Section with Professional Location
+                // Hero Section - WITHOUT Location Selector
                 _buildHeroSection(),
+
                 // Stats Strip
                 _buildStatsStrip(),
+
                 const SizedBox(height: 20),
+
                 // Categories
                 _buildCategoriesSection(),
+
                 const SizedBox(height: 20),
+
                 // All Tests Section
                 _buildTestsSection(),
+
                 const SizedBox(height: 20),
+
                 // Quick Actions
                 _buildQuickActions(),
+
                 const SizedBox(height: 30),
               ],
             ),
@@ -416,7 +377,8 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ==================== HERO SECTION ====================
+  // ==================== HERO SECTION (Updated - No Location) ====================
+  // ==================== HERO SECTION (Updated - Welcome Banner Clickable) ====================
   Widget _buildHeroSection() {
     return Container(
       decoration: BoxDecoration(
@@ -435,27 +397,37 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Hello 👋',
-                style: TextStyle(fontSize: 13, color: Colors.white70)),
+            Text(
+              'Hello $_userName 👋',
+              style: const TextStyle(
+                  fontSize: 16,
+                  color: Colors.white70,
+                  fontWeight: FontWeight.w500),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Book your tests',
+              style: TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white),
+            ),
             const SizedBox(height: 4),
-            const Text('Book your tests',
-                style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white)),
-            const SizedBox(height: 4),
-            const Text('with ease',
-                style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.primaryLight)),
-            const SizedBox(height: 24),
-            // Professional Location Card
+            const Text(
+              'with ease',
+              style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.primaryLight),
+            ),
+            const SizedBox(height: 20),
+
+            // Quick Info Banner - CLICKABLE
             GestureDetector(
-              onTap: _showLocationPicker,
+              onTap: _navigateToTestList,
               child: Container(
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 decoration: BoxDecoration(
                   color: Colors.white.withOpacity(0.15),
                   borderRadius: BorderRadius.circular(16),
@@ -469,27 +441,26 @@ class _HomeScreenState extends State<HomeScreen> {
                         color: Colors.white.withOpacity(0.2),
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: const Icon(Icons.location_on,
-                          color: Colors.white, size: 18),
+                      child: const Icon(Icons.medical_information,
+                          color: Colors.white, size: 20),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            _selectedLocation?.name ?? 'Select Location',
-                            style: const TextStyle(
+                          const Text(
+                            'Welcome to Thal-Care',
+                            style: TextStyle(
                                 color: Colors.white,
                                 fontSize: 14,
                                 fontWeight: FontWeight.w600),
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            _selectedLocation?.address ??
-                                'Tap to change location',
+                            '${_allTests.length}+ diagnostic tests available',
                             style: TextStyle(
-                                color: Colors.white.withOpacity(0.7),
+                                color: Colors.white.withOpacity(0.8),
                                 fontSize: 11),
                           ),
                         ],
@@ -501,7 +472,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         color: Colors.white.withOpacity(0.2),
                         borderRadius: BorderRadius.circular(20),
                       ),
-                      child: const Icon(Icons.keyboard_arrow_down,
+                      child: const Icon(Icons.chevron_right,
                           color: Colors.white, size: 16),
                     ),
                   ],
@@ -571,11 +542,10 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildCategoryCard(Map<String, dynamic> category) {
     return GestureDetector(
       onTap: () {
-        // Navigate to test list with selected category
         Navigator.pushNamed(
           context,
           AppRoutes.testList,
-          arguments: category['name'], // Pass category name as argument
+          arguments: category['name'],
         );
       },
       child: Container(
@@ -833,449 +803,6 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
           ),
-        ],
-      ),
-    );
-  }
-
-  void _showNotificationsDialog(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: const [
-            Text('Notifications',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            SizedBox(height: 16),
-            Text('No new notifications',
-                style: TextStyle(color: AppColors.textGray)),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ==================== LOCATION PICKER SHEET ====================
-
-class LocationPickerSheet extends StatefulWidget {
-  final LocationModel? selectedLocation;
-  final Function(LocationModel) onLocationSelected;
-
-  const LocationPickerSheet({
-    super.key,
-    this.selectedLocation,
-    required this.onLocationSelected,
-  });
-
-  @override
-  State<LocationPickerSheet> createState() => _LocationPickerSheetState();
-}
-
-class _LocationPickerSheetState extends State<LocationPickerSheet> {
-  String _searchQuery = '';
-  List<LocationModel> _filteredLocations = [];
-
-  final TextEditingController _houseController = TextEditingController();
-  final TextEditingController _streetController = TextEditingController();
-  final TextEditingController _landmarkController = TextEditingController();
-
-  final FocusNode _houseFocus = FocusNode();
-  final FocusNode _streetFocus = FocusNode();
-  final FocusNode _landmarkFocus = FocusNode();
-
-  String? _selectedSector;
-  int _selectedTab = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _filteredLocations = LocationModel.getSectors();
-    _selectedSector = LocationModel.getSectors().first.id;
-  }
-
-  @override
-  void dispose() {
-    _houseController.dispose();
-    _streetController.dispose();
-    _landmarkController.dispose();
-    _houseFocus.dispose();
-    _streetFocus.dispose();
-    _landmarkFocus.dispose();
-    super.dispose();
-  }
-
-  void _filterLocations(String query) {
-    setState(() {
-      _searchQuery = query;
-      if (query.isEmpty) {
-        _filteredLocations = LocationModel.getSectors();
-      } else {
-        _filteredLocations = LocationModel.getSectors()
-            .where((loc) =>
-                loc.name.toLowerCase().contains(query.toLowerCase()) ||
-                loc.address.toLowerCase().contains(query.toLowerCase()))
-            .toList();
-      }
-    });
-  }
-
-  void _saveManualAddress() {
-    _houseFocus.unfocus();
-    _streetFocus.unfocus();
-    _landmarkFocus.unfocus();
-
-    if (_selectedSector == null) {
-      _showSnackBar('Please select a sector');
-      return;
-    }
-
-    final house = _houseController.text.trim();
-    final street = _streetController.text.trim();
-
-    if (house.isEmpty || street.isEmpty) {
-      _showSnackBar('Please enter house and street number');
-      return;
-    }
-
-    final sector = LocationModel.getSectors().firstWhere(
-      (s) => s.id == _selectedSector,
-    );
-
-    final landmark = _landmarkController.text.trim();
-    final fullAddress = landmark.isNotEmpty
-        ? 'House $house, Street $street, ${sector.name}, Near $landmark'
-        : 'House $house, Street $street, ${sector.name}';
-
-    final customLocation = LocationModel(
-      id: 'custom_${DateTime.now().millisecondsSinceEpoch}',
-      name: sector.name,
-      address: fullAddress,
-      isSaved: true,
-      isCustom: true,
-    );
-
-    widget.onLocationSelected(customLocation);
-  }
-
-  void _showSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
-    );
-  }
-
-  void _closeKeyboard() {
-    FocusScope.of(context).unfocus();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
-
-    return GestureDetector(
-      onTap: _closeKeyboard,
-      behavior: HitTestBehavior.translucent,
-      child: AnimatedPadding(
-        duration: const Duration(milliseconds: 250),
-        curve: Curves.easeOut,
-        padding: EdgeInsets.only(bottom: keyboardHeight),
-        child: Container(
-          height: MediaQuery.of(context).size.height * 0.85,
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-          ),
-          child: Column(
-            children: [
-              Container(
-                margin: const EdgeInsets.only(top: 12),
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AppColors.borderLight,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('Select Location',
-                        style: TextStyle(
-                            fontSize: 20, fontWeight: FontWeight.bold)),
-                    Container(
-                      decoration: BoxDecoration(
-                        color: AppColors.backgroundLight,
-                        borderRadius: BorderRadius.circular(24),
-                      ),
-                      child: Row(
-                        children: [
-                          _buildTabButton('Sector', 0),
-                          _buildTabButton('Manual', 1),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 8),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Text(
-                  _selectedTab == 1
-                      ? 'Enter your complete address manually'
-                      : 'Choose your sector for home sampling',
-                  style:
-                      const TextStyle(fontSize: 13, color: AppColors.textGray),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Expanded(
-                child: _selectedTab == 1
-                    ? _buildManualAddressForm()
-                    : _buildSectorList(),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTabButton(String title, int tabIndex) {
-    final isActive = _selectedTab == tabIndex;
-    return GestureDetector(
-      onTap: () {
-        setState(() => _selectedTab = tabIndex);
-        _closeKeyboard();
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-        decoration: BoxDecoration(
-          color: isActive ? AppColors.primaryGreen : Colors.transparent,
-          borderRadius: BorderRadius.circular(24),
-        ),
-        child: Text(
-          title,
-          style: TextStyle(
-            color: isActive ? Colors.white : AppColors.textGray,
-            fontSize: 13,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSectorList() {
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Container(
-            decoration: BoxDecoration(
-              color: AppColors.backgroundLight,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: AppColors.borderLight),
-            ),
-            child: TextField(
-              onChanged: _filterLocations,
-              decoration: InputDecoration(
-                hintText: 'Search sector...',
-                prefixIcon: const Icon(Icons.search,
-                    size: 20, color: AppColors.textGray),
-                border: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(vertical: 14),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: _filteredLocations.length,
-            itemBuilder: (context, index) {
-              final location = _filteredLocations[index];
-              final isSelected = widget.selectedLocation?.id == location.id;
-              return GestureDetector(
-                onTap: () => widget.onLocationSelected(location),
-                child: Container(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color:
-                        isSelected ? AppColors.primaryExtraLight : Colors.white,
-                    border: Border.all(
-                      color: isSelected
-                          ? AppColors.primaryGreen
-                          : AppColors.borderLight,
-                      width: isSelected ? 1.5 : 1,
-                    ),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? AppColors.primaryGreen.withOpacity(0.1)
-                              : AppColors.backgroundLight,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Icon(Icons.location_on,
-                            color: isSelected
-                                ? AppColors.primaryGreen
-                                : AppColors.textGray,
-                            size: 20),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(location.name,
-                                style: TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 15,
-                                    color: isSelected
-                                        ? AppColors.primaryGreen
-                                        : AppColors.textDark)),
-                            const SizedBox(height: 2),
-                            Text(location.address,
-                                style: const TextStyle(
-                                    fontSize: 12, color: AppColors.textGray)),
-                          ],
-                        ),
-                      ),
-                      if (isSelected)
-                        const Icon(Icons.check_circle,
-                            color: AppColors.primaryGreen, size: 22),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildManualAddressForm() {
-    return SingleChildScrollView(
-      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('Select Sector *',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            decoration: BoxDecoration(
-              color: AppColors.backgroundLight,
-              border: Border.all(color: AppColors.borderLight),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
-                value: _selectedSector,
-                isExpanded: true,
-                icon: const Icon(Icons.keyboard_arrow_down,
-                    color: AppColors.textGray),
-                items: LocationModel.getSectors().map((sector) {
-                  return DropdownMenuItem(
-                      value: sector.id, child: Text(sector.name));
-                }).toList(),
-                onChanged: (value) => setState(() => _selectedSector = value),
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
-          const Text('House / Flat Number *',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _houseController,
-            focusNode: _houseFocus,
-            decoration: InputDecoration(
-              hintText: 'e.g., 123, A-45',
-              prefixIcon:
-                  const Icon(Icons.home, size: 20, color: AppColors.textGray),
-              border:
-                  OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-              enabledBorder: OutlineInputBorder(
-                  borderSide: const BorderSide(color: AppColors.borderLight)),
-              focusedBorder: OutlineInputBorder(
-                  borderSide: const BorderSide(
-                      color: AppColors.primaryGreen, width: 1.5)),
-            ),
-          ),
-          const SizedBox(height: 20),
-          const Text('Street / Road Name *',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _streetController,
-            focusNode: _streetFocus,
-            decoration: InputDecoration(
-              hintText: 'e.g., Main Street, Street 5',
-              prefixIcon:
-                  const Icon(Icons.route, size: 20, color: AppColors.textGray),
-              border:
-                  OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-              enabledBorder: OutlineInputBorder(
-                  borderSide: const BorderSide(color: AppColors.borderLight)),
-              focusedBorder: OutlineInputBorder(
-                  borderSide: const BorderSide(
-                      color: AppColors.primaryGreen, width: 1.5)),
-            ),
-          ),
-          const SizedBox(height: 20),
-          const Text('Landmark (Optional)',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _landmarkController,
-            focusNode: _landmarkFocus,
-            decoration: InputDecoration(
-              hintText: 'e.g., Near City Hospital',
-              prefixIcon: const Icon(Icons.location_city,
-                  size: 20, color: AppColors.textGray),
-              border:
-                  OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-              enabledBorder: OutlineInputBorder(
-                  borderSide: const BorderSide(color: AppColors.borderLight)),
-              focusedBorder: OutlineInputBorder(
-                  borderSide: const BorderSide(
-                      color: AppColors.primaryGreen, width: 1.5)),
-            ),
-          ),
-          const SizedBox(height: 32),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: _saveManualAddress,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primaryGreen,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14)),
-              ),
-              child: const Text('Save Address',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-            ),
-          ),
-          const SizedBox(height: 40),
         ],
       ),
     );

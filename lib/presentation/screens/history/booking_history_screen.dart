@@ -1,13 +1,17 @@
 // lib/presentation/screens/history/booking_history_screen.dart
 
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:lab_system/core/themes/app_theme.dart';
 import 'package:lab_system/data/repositories/base_auth_repository.dart';
 import 'package:lab_system/presentation/screens/history/booking_detail_screen.dart';
 import 'package:lab_system/services/locator.dart';
 import 'package:lab_system/data/repositories/base_booking_repository.dart';
 import 'package:lab_system/data/models/booking_model.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:open_file/open_file.dart';
 
 class BookingHistoryScreen extends StatefulWidget {
   const BookingHistoryScreen({super.key});
@@ -21,11 +25,13 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen>
   final BaseBookingRepository _bookingRepository =
       locator<BaseBookingRepository>();
   final BaseAuthRepository _authRepo = locator<BaseAuthRepository>();
+  final _supabase = Supabase.instance.client;
 
   List<BookingModel> _bookings = [];
   bool _isLoading = true;
   bool _isRefreshing = false;
   String _userId = '';
+  Set<String> _downloadingIds = {};
 
   final Set<BookingStatus> _cancellableStatuses = {
     BookingStatus.pending,
@@ -38,8 +44,6 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen>
     _loadUserId();
   }
 
-  // ── Auth ──────────────────────────────────────────────────────────────────
-
   Future<void> _loadUserId() async {
     final user = await _authRepo.getCurrentUser();
     if (user == null || user.id.isEmpty) {
@@ -49,8 +53,6 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen>
     setState(() => _userId = user.id);
     _loadBookings();
   }
-
-  // ── Data fetching ─────────────────────────────────────────────────────────
 
   Future<void> _loadBookings() async {
     setState(() => _isLoading = true);
@@ -75,6 +77,73 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen>
     } catch (e) {
       debugPrint('Error loading bookings: $e');
     }
+  }
+
+  // ── Download Report Logic ─────────────────────────────────────────────────
+
+  Future<void> _downloadReport(BookingModel booking) async {
+    if (_downloadingIds.contains(booking.id)) {
+      toast('Download already in progress...');
+      return;
+    }
+
+    setState(() {
+      _downloadingIds.add(booking.id);
+    });
+
+    try {
+      toast('Starting download...');
+
+      // First, check if report exists in reports table
+      final reportResponse = await _supabase
+          .from('reports')
+          .select('file_url, file_name')
+          .eq('booking_id', booking.id)
+          .maybeSingle();
+
+      if (reportResponse == null) {
+        toast('No report found for this booking');
+        return;
+      }
+
+      final fileUrl = reportResponse['file_url'];
+      final fileName = reportResponse['file_name'] ?? 'report.pdf';
+
+      // Download file from Supabase storage
+      final response =
+          await _supabase.storage.from('reports').download(fileUrl);
+
+      if (response == null) {
+        throw Exception('Failed to download file');
+      }
+
+      // Save to device
+      final directory = await getApplicationDocumentsDirectory();
+      final filePath = '${directory.path}/$fileName';
+      final file = File(filePath);
+      await file.writeAsBytes(response);
+
+      toast('Download complete!');
+
+      // Open the file
+      await OpenFile.open(filePath);
+    } catch (e) {
+      print('❌ Download error: $e');
+      toast('Download failed: ${e.toString()}');
+    } finally {
+      setState(() {
+        _downloadingIds.remove(booking.id);
+      });
+    }
+  }
+
+  void toast(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   // ── Cancel logic ──────────────────────────────────────────────────────────
@@ -192,18 +261,7 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen>
     setState(() => _isRefreshing = false);
   }
 
-  // ── Navigation ────────────────────────────────────────────────────────────
-
   void _navigateToTestList() => Navigator.pushNamed(context, '/tests');
-
-  void _downloadReport(BookingModel booking) {
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-      content: Text('Download started...'),
-      duration: Duration(seconds: 2),
-    ));
-  }
-
-  // ── Helpers ───────────────────────────────────────────────────────────────
 
   String _formatDate(DateTime date) => DateFormat('MMM dd, yyyy').format(date);
 
@@ -275,8 +333,6 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen>
         };
     }
   }
-
-  // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -379,8 +435,10 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen>
     final isActive = booking.status != BookingStatus.completed &&
         booking.status != BookingStatus.cancelled;
     final isCancellable = _canCancel(booking.status);
-    final canShowReport = booking.status == BookingStatus.reportReady;
+    final canShowReport = booking.status == BookingStatus.reportReady ||
+        booking.status == BookingStatus.completed;
     final progress = statusConfig['progress'] as int;
+    final isDownloading = _downloadingIds.contains(booking.id);
 
     return GestureDetector(
       onTap: () => Navigator.push(
@@ -405,7 +463,6 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header
             Padding(
               padding: const EdgeInsets.all(16),
               child: Row(
@@ -453,11 +510,8 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen>
                 ],
               ),
             ),
-
             const Divider(
                 height: 0, thickness: 0.5, color: AppColors.borderLight),
-
-            // Details
             Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
@@ -475,8 +529,6 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen>
                 ],
               ),
             ),
-
-            // Progress bar
             if (isActive)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -509,28 +561,35 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen>
                   ],
                 ),
               ),
-
             const SizedBox(height: 12),
-
-            // Action buttons
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
               child: Row(
                 children: [
-                  if (booking.status == BookingStatus.reportReady ||
-                      booking.status == BookingStatus.completed)
+                  if (canShowReport)
                     Expanded(
                       child: ElevatedButton(
-                        onPressed: () => _downloadReport(booking),
+                        onPressed: isDownloading
+                            ? null
+                            : () => _downloadReport(booking),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.primaryGreen,
                           padding: const EdgeInsets.symmetric(vertical: 10),
                           shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(10)),
                         ),
-                        child: const Text('Download Report',
-                            style: TextStyle(
-                                fontSize: 13, fontWeight: FontWeight.w600)),
+                        child: isDownloading
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Text('Download Report',
+                                style: TextStyle(
+                                    fontSize: 13, fontWeight: FontWeight.w600)),
                       ),
                     ),
                   if (isCancellable &&
@@ -568,8 +627,6 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen>
                 ],
               ),
             ),
-
-            // Non-cancellable reason banner
             if (!isCancellable &&
                 isActive &&
                 !canShowReport &&

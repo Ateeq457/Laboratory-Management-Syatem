@@ -128,9 +128,11 @@ class TestModel {
   }
 
   static TestCategory _parseCategory(String value) {
-    switch (value.toLowerCase()) {
+    final lower = value.toLowerCase().trim();
+    switch (lower) {
       case 'bloodwork':
       case 'blood_work':
+      case 'blood work': // ← Space ke saath
         return TestCategory.bloodWork;
       case 'diabetes':
         return TestCategory.diabetes;
@@ -141,6 +143,7 @@ class TestModel {
       case 'cardiology':
         return TestCategory.cardiology;
       default:
+        print('⚠️ Unknown category from DB: $value');
         return TestCategory.other;
     }
   }
@@ -148,17 +151,17 @@ class TestModel {
   static String _categoryToString(TestCategory category) {
     switch (category) {
       case TestCategory.bloodWork:
-        return 'blood_work';
+        return 'Blood Work'; // ← Space ke saath, database mein match karega
       case TestCategory.diabetes:
-        return 'diabetes';
+        return 'Diabetes';
       case TestCategory.renal:
-        return 'renal';
+        return 'Renal';
       case TestCategory.hepatic:
-        return 'hepatic';
+        return 'Hepatic';
       case TestCategory.cardiology:
-        return 'cardiology';
+        return 'Cardiology';
       default:
-        return 'other';
+        return 'Other';
     }
   }
 }

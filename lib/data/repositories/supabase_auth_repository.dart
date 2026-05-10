@@ -1,9 +1,7 @@
 // lib/data/repositories/supabase_auth_repository.dart
-// FIXES:
-//  1. updateUserName() actually called after NameInputScreen — was missing
-//  2. last_login updated on verifyOTP success
-//  3. verifyOTP returns the user so OTP screen navigation works correctly
-//  4. Removed unsafe bare try/catch that swallowed DB errors silently
+// PRODUCTION-READY Auth Repository
+// - Real OTP via Supabase Auth (production)
+// - Mock OTP 123456 only in debug mode (development)
 
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -15,26 +13,76 @@ class SupabaseAuthRepository implements BaseAuthRepository {
   final _supabase = Supabase.instance.client;
   static const String _keyUserId = 'current_user_id';
 
+  // Secret mock OTP - only developer knows this
+  // In production, this is disabled
+  static const String _mockOTP = '123456';
+
+  // Enable mock OTP in debug mode only
+  bool get _isDebugMode => kDebugMode;
+
   @override
   Future<bool> sendOTP(String phoneNumber) async {
-    // TODO: In production, integrate a real SMS provider (Twilio, etc.)
-    // or use Supabase Auth phone sign-in (requires phone provider setup).
-    debugPrint('📱 OTP sent to: $phoneNumber');
-    debugPrint('🔑 Mock OTP: 123456 (replace with real SMS in production)');
-    return true;
+    try {
+      if (_isDebugMode) {
+        debugPrint('📱 [DEBUG] OTP sent to: $phoneNumber');
+        debugPrint('🔑 [DEBUG] Mock OTP: $_mockOTP (for testing only)');
+      }
+
+      // In production, send real OTP via Supabase Auth
+      if (!_isDebugMode) {
+        await _supabase.auth.signInWithOtp(
+          phone: phoneNumber,
+        );
+        debugPrint('📱 [PROD] Real OTP sent to: $phoneNumber');
+      }
+
+      return true;
+    } catch (e) {
+      debugPrint('❌ Error sending OTP: $e');
+      return false;
+    }
   }
 
   @override
   Future<UserModel?> verifyOTP(String phoneNumber, String otp) async {
-    // TODO: Validate against real OTP when SMS provider is integrated
-    if (otp.length != 6) return null;
+    // DEVELOPMENT MODE: Accept mock OTP
+    if (_isDebugMode && otp == _mockOTP) {
+      debugPrint('✅ [DEBUG] Mock OTP accepted for: $phoneNumber');
+      return await _authenticateUser(phoneNumber);
+    }
 
+    // PRODUCTION MODE: Verify real OTP via Supabase Auth
+    if (!_isDebugMode) {
+      try {
+        final response = await _supabase.auth.verifyOTP(
+          phone: phoneNumber,
+          token: otp,
+          type: OtpType.sms,
+        );
+
+        if (response.session != null) {
+          debugPrint('✅ [PROD] Real OTP verified for: $phoneNumber');
+          return await _authenticateUser(phoneNumber);
+        }
+      } catch (e) {
+        debugPrint('❌ [PROD] OTP verification failed: $e');
+        return null;
+      }
+    }
+
+    // If we reach here, OTP is invalid
+    debugPrint('❌ Invalid OTP provided');
+    return null;
+  }
+
+  /// Common authentication logic for both dev and prod
+  Future<UserModel?> _authenticateUser(String phoneNumber) async {
     try {
       // Check if user already exists
       UserModel? user = await _getUserByPhone(phoneNumber);
 
       if (user != null) {
-        // FIX: Update last_login on every login
+        // Update last_login on every login
         await _supabase.from('users').update(
             {'last_login': DateTime.now().toIso8601String()}).eq('id', user.id);
 
@@ -47,7 +95,7 @@ class SupabaseAuthRepository implements BaseAuthRepository {
       await _saveUserId(user.id);
       return user;
     } catch (e) {
-      debugPrint('❌ Error verifying OTP: $e');
+      debugPrint('❌ Error authenticating user: $e');
       return null;
     }
   }
@@ -103,6 +151,11 @@ class SupabaseAuthRepository implements BaseAuthRepository {
   Future<void> logout() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_keyUserId);
+
+    // Also sign out from Supabase Auth if using real auth
+    if (!_isDebugMode) {
+      await _supabase.auth.signOut();
+    }
   }
 
   @override
@@ -140,6 +193,13 @@ class SupabaseAuthRepository implements BaseAuthRepository {
   Future<bool> isLoggedIn() async {
     final prefs = await SharedPreferences.getInstance();
     final userId = prefs.getString(_keyUserId);
+
+    // Also check Supabase Auth session in production
+    if (!_isDebugMode && userId != null) {
+      final session = _supabase.auth.currentSession;
+      return session != null;
+    }
+
     return userId != null && userId.isNotEmpty;
   }
 }

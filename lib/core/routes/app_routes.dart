@@ -24,6 +24,7 @@ class AppRoutes {
   static const String login = '/login';
   static const String otp = '/otp';
   static const String nameInput = '/name-input';
+  static const String profile = '/profile';
 
   static Route<dynamic> generateRoute(RouteSettings settings) {
     switch (settings.name) {
@@ -73,6 +74,10 @@ class AppRoutes {
         final args = settings.arguments as String;
         return MaterialPageRoute(
           builder: (_) => NameInputScreen(phoneNumber: args),
+        );
+      case profile:
+        return MaterialPageRoute(
+          builder: (_) => const ProfileScreen(),
         );
 
       default:
