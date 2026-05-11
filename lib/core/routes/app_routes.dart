@@ -1,4 +1,5 @@
 // lib/core/routes/app_routes.dart
+// ✅ Updated: OTP route now passes userName (Map args) alongside phoneNumber
 
 import 'package:flutter/material.dart';
 import 'package:lab_system/presentation/screens/auth/login_screen.dart';
@@ -10,9 +11,8 @@ import 'package:lab_system/presentation/screens/tests/test_list_screen.dart';
 import 'package:lab_system/presentation/screens/tests/test_detail_screen.dart';
 import 'package:lab_system/presentation/screens/history/booking_history_screen.dart';
 import 'package:lab_system/presentation/screens/profile/profile_screen.dart';
-import 'package:lab_system/presentation/widgets/bottom_nav_bar.dart';
 import 'package:lab_system/data/models/test_model.dart';
-import 'package:lab_system/app.dart'; // ← Import MainScreen from app.dart
+import 'package:lab_system/app.dart';
 
 class AppRoutes {
   static const String home = '/';
@@ -29,65 +29,54 @@ class AppRoutes {
   static Route<dynamic> generateRoute(RouteSettings settings) {
     switch (settings.name) {
       case home:
-        return MaterialPageRoute(
-          builder: (_) => const MainScreen(), // ← MainScreen with bottom nav
-        );
+        return _route(const MainScreen());
 
       case testList:
-        final args = settings.arguments as String?;
-        return MaterialPageRoute(
-          builder: (_) => TestListScreen(initialCategory: args),
-        );
+        return _route(TestListScreen(
+          initialCategory: settings.arguments as String?,
+        ));
 
       case testDetail:
-        final args = settings.arguments as TestModel;
-        return MaterialPageRoute(
-          builder: (_) => TestDetailScreen(test: args),
-        );
+        return _route(TestDetailScreen(test: settings.arguments as TestModel));
 
       case orders:
-        return MaterialPageRoute(
-          builder: (_) => const BookingHistoryScreen(),
-        );
+        return _route(const BookingHistoryScreen());
 
       case reports:
-        return MaterialPageRoute(
-          builder: (_) => const ReportsScreen(),
-        );
+        return _route(const ReportsScreen());
 
       case splash:
-        return MaterialPageRoute(
-          builder: (_) => const SplashScreen(),
-        );
+        return _route(const SplashScreen());
 
       case login:
-        return MaterialPageRoute(
-          builder: (_) => const LoginScreen(),
-        );
+        return _route(const LoginScreen());
 
+      // OTP route: arguments is a Map<String, String>
+      // { 'phone': '+923001234567', 'name': 'Ahmed Raza' }
       case otp:
-        final args = settings.arguments as String;
-        return MaterialPageRoute(
-          builder: (_) => OTPVerificationScreen(phoneNumber: args),
-        );
+        final args = settings.arguments as Map<String, String>;
+        return _route(OTPVerificationScreen(
+          phoneNumber: args['phone']!,
+          userName: args['name'] ?? '',
+        ));
+
       case nameInput:
-        final args = settings.arguments as String;
-        return MaterialPageRoute(
-          builder: (_) => NameInputScreen(phoneNumber: args),
-        );
+        return _route(NameInputScreen(
+          phoneNumber: settings.arguments as String,
+        ));
+
       case profile:
-        return MaterialPageRoute(
-          builder: (_) => const ProfileScreen(),
-        );
+        return _route(const ProfileScreen());
 
       default:
-        return MaterialPageRoute(
-          builder: (_) => const Scaffold(
-            body: Center(
-              child: Text('Route not found ❌'),
-            ),
+        return _route(
+          const Scaffold(
+            body: Center(child: Text('Route not found ❌')),
           ),
         );
     }
   }
+
+  static MaterialPageRoute _route(Widget page) =>
+      MaterialPageRoute(builder: (_) => page);
 }

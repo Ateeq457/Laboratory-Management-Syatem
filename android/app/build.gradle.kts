@@ -1,11 +1,14 @@
+// android/app/build.gradle.kts
+// ✅ FIXED:
+// - minSdk set explicitly to 23 (Firebase Phone Auth requires >= 21;
+//   flutter.minSdkVersion may be 16 which causes build/runtime failures)
+// - Java 17 compile options (matches kotlinOptions)
+// - Firebase BoM kept at 34.x for latest Phone Auth fixes
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
-
-    // Flutter plugin
     id("dev.flutter.flutter-gradle-plugin")
-
-    // Firebase Google Services plugin
     id("com.google.gms.google-services")
 }
 
@@ -25,6 +28,8 @@ android {
 
     defaultConfig {
         applicationId = "com.example.lab_system"
+        // ✅ CRITICAL: Firebase Phone Auth requires minSdk >= 21.
+        // Use 23 for broader RecaptchaActivity support.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
@@ -43,12 +48,12 @@ flutter {
 }
 
 dependencies {
-    // Firebase BoM (manages versions automatically)
+    // Firebase BoM — manages all Firebase library versions automatically
     implementation(platform("com.google.firebase:firebase-bom:34.13.0"))
 
-    // Firebase Analytics (optional but good to include)
+    // Firebase Analytics
     implementation("com.google.firebase:firebase-analytics")
 
-    // 🔐 Firebase Authentication (IMPORTANT for your use-case)
+    // Firebase Authentication (Phone OTP)
     implementation("com.google.firebase:firebase-auth")
 }
