@@ -1,10 +1,11 @@
 // lib/core/routes/app_routes.dart
-// ✅ Updated: OTP route now passes userName (Map args) alongside phoneNumber
+// Updated Routes - Pure Supabase Auth
 
 import 'package:flutter/material.dart';
 import 'package:lab_system/presentation/screens/auth/login_screen.dart';
+import 'package:lab_system/presentation/screens/auth/signup_screen.dart';
+import 'package:lab_system/presentation/screens/auth/forgot_password_screen.dart';
 import 'package:lab_system/presentation/screens/auth/name_input_screen.dart';
-import 'package:lab_system/presentation/screens/auth/otp_verification_screen.dart';
 import 'package:lab_system/presentation/screens/auth/splash_screen.dart';
 import 'package:lab_system/presentation/screens/reports/reports_screen.dart';
 import 'package:lab_system/presentation/screens/tests/test_list_screen.dart';
@@ -22,7 +23,8 @@ class AppRoutes {
   static const String reports = '/reports';
   static const String splash = '/splash';
   static const String login = '/login';
-  static const String otp = '/otp';
+  static const String signup = '/signup';
+  static const String forgotPassword = '/forgot-password';
   static const String nameInput = '/name-input';
   static const String profile = '/profile';
 
@@ -51,19 +53,14 @@ class AppRoutes {
       case login:
         return _route(const LoginScreen());
 
-      // OTP route: arguments is a Map<String, String>
-      // { 'phone': '+923001234567', 'name': 'Ahmed Raza' }
-      case otp:
-        final args = settings.arguments as Map<String, String>;
-        return _route(OTPVerificationScreen(
-          phoneNumber: args['phone']!,
-          userName: args['name'] ?? '',
-        ));
+      case signup:
+        return _route(const SignupScreen());
+
+      case forgotPassword:
+        return _route(const ForgotPasswordScreen());
 
       case nameInput:
-        return _route(NameInputScreen(
-          phoneNumber: settings.arguments as String,
-        ));
+        return _route(NameInputScreen(email: settings.arguments as String?));
 
       case profile:
         return _route(const ProfileScreen());

@@ -1,13 +1,11 @@
 // lib/presentation/screens/profile/profile_screen.dart
-// Simplified Profile Screen - Name Edit + Logout only
+// Simplified Profile Screen - Name and Email only
 
 import 'package:flutter/material.dart';
 import 'package:lab_system/core/themes/app_theme.dart';
 import 'package:lab_system/core/routes/app_routes.dart';
 import 'package:lab_system/services/locator.dart';
 import 'package:lab_system/data/repositories/base_auth_repository.dart';
-import 'package:lab_system/data/repositories/base_booking_repository.dart';
-import 'package:lab_system/data/models/booking_model.dart';
 import 'package:lab_system/data/models/user_model.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -19,17 +17,11 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   final BaseAuthRepository _authRepo = locator<BaseAuthRepository>();
-  final BaseBookingRepository _bookingRepo = locator<BaseBookingRepository>();
 
   UserModel? _user;
   bool _isLoading = true;
   bool _isEditing = false;
   final TextEditingController _nameController = TextEditingController();
-
-  // Stats
-  int _totalBookings = 0;
-  int _completedBookings = 0;
-  int _activeBookings = 0;
 
   @override
   void initState() {
@@ -48,10 +40,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     try {
       final user = await _authRepo.getCurrentUser();
-      if (user != null) {
-        final bookings = await _bookingRepo.getUserBookings(user.id);
-        _calculateStats(bookings);
-      }
       setState(() {
         _user = user;
         _nameController.text = user?.name ?? '';
@@ -63,19 +51,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       });
       debugPrint('Error loading profile: $e');
     }
-  }
-
-  void _calculateStats(List<BookingModel> bookings) {
-    _totalBookings = bookings.length;
-    _completedBookings =
-        bookings.where((b) => b.status == BookingStatus.completed).length;
-    _activeBookings = bookings
-        .where((b) =>
-            b.status == BookingStatus.pending ||
-            b.status == BookingStatus.confirmed ||
-            b.status == BookingStatus.sampleCollected ||
-            b.status == BookingStatus.processing)
-        .length;
   }
 
   Future<void> _updateName() async {
@@ -134,7 +109,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     if (confirmed == true) {
       setState(() => _isLoading = true);
-      await _authRepo.logout();
+      await _authRepo.signOut();
       if (mounted) {
         Navigator.pushNamedAndRemoveUntil(
           context,
@@ -171,10 +146,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           : SingleChildScrollView(
               child: Column(
                 children: [
-                  const SizedBox(height: 30),
+                  const SizedBox(height: 40),
                   _buildAvatarSection(),
-                  const SizedBox(height: 24),
-                  _buildStatsSection(),
                   const SizedBox(height: 24),
                   _buildActionButtons(),
                   const SizedBox(height: 40),
@@ -202,7 +175,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _buildAvatarSection() {
     final userName = _user?.name ?? 'Guest User';
-    final userPhone = _user?.phone ?? 'Not provided';
+    final userEmail = _user?.email ?? 'No email';
 
     String initials = 'U';
     if (userName.isNotEmpty && userName != 'Guest User') {
@@ -238,8 +211,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       fontWeight: FontWeight.w600))),
         ),
         const SizedBox(height: 16),
-
-        // Editable Name Field
         if (_isEditing)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 40),
@@ -290,57 +261,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ],
             ),
           ),
-
         const SizedBox(height: 8),
-        Text(userPhone,
+        Text(userEmail,
             style: const TextStyle(fontSize: 14, color: AppColors.textGray)),
       ],
     );
-  }
-
-  Widget _buildStatsSection() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 20),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.borderLight),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _buildStatItem(
-              'Total', _totalBookings.toString(), Icons.receipt_long),
-          _buildVerticalDivider(),
-          _buildStatItem(
-              'Completed', _completedBookings.toString(), Icons.check_circle),
-          _buildVerticalDivider(),
-          _buildStatItem('Active', _activeBookings.toString(), Icons.pending),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatItem(String label, String value, IconData icon) {
-    return Column(
-      children: [
-        Icon(icon, size: 18, color: AppColors.primaryGreen),
-        const SizedBox(height: 4),
-        Text(value,
-            style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: AppColors.primaryGreen)),
-        const SizedBox(height: 2),
-        Text(label,
-            style: const TextStyle(fontSize: 10, color: AppColors.textGray)),
-      ],
-    );
-  }
-
-  Widget _buildVerticalDivider() {
-    return Container(width: 1, height: 40, color: AppColors.borderLight);
   }
 
   Widget _buildActionButtons() {

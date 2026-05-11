@@ -1,5 +1,5 @@
-// lib/presentation/screens/auth/login_screen.dart
-// Premium Login Screen - Email/Password
+// lib/presentation/screens/auth/signup_screen.dart
+// Premium Sign Up Screen - Email/Password with Verification
 
 import 'package:flutter/material.dart';
 import 'package:animate_do/animate_do.dart';
@@ -8,66 +8,69 @@ import 'package:lab_system/core/routes/app_routes.dart';
 import 'package:lab_system/services/locator.dart';
 import 'package:lab_system/data/repositories/base_auth_repository.dart';
 
-class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+class SignupScreen extends StatefulWidget {
+  const SignupScreen({super.key});
 
   @override
-  State<LoginScreen> createState() => _LoginScreenState();
+  State<SignupScreen> createState() => _SignupScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _SignupScreenState extends State<SignupScreen> {
   final _formKey = GlobalKey<FormState>();
+  final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
 
   final _authRepo = locator<BaseAuthRepository>();
 
   bool _isLoading = false;
   bool _obscurePassword = true;
+  bool _obscureConfirmPassword = true;
   String? _errorMessage;
+  String? _successMessage;
 
   @override
   void dispose() {
+    _nameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
+    _confirmPasswordController.dispose();
     super.dispose();
   }
 
-  Future<void> _handleLogin() async {
+  Future<void> _handleSignUp() async {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() {
       _isLoading = true;
       _errorMessage = null;
+      _successMessage = null;
     });
 
     try {
-      final user = await _authRepo.signIn(
+      final user = await _authRepo.signUp(
         email: _emailController.text.trim(),
         password: _passwordController.text,
+        name: _nameController.text.trim(),
       );
 
       if (!mounted) return;
 
       if (user != null) {
-        // Check email verification (optional - can be removed)
-        // final isVerified = await _authRepo.isEmailVerified();
-        // if (!isVerified) {
-        //   setState(() {
-        //     _errorMessage = 'Please verify your email first. Check your inbox.';
-        //   });
-        //   await _authRepo.signOut();
-        //   return;
-        // }
+        setState(() {
+          _successMessage =
+              'Account created! Please check your email to verify.';
+        });
 
-        Navigator.pushNamedAndRemoveUntil(
-          context,
-          AppRoutes.home,
-          (route) => false,
-        );
+        // Navigate to login after 3 seconds
+        await Future.delayed(const Duration(seconds: 3));
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, AppRoutes.login);
+        }
       } else {
         setState(() {
-          _errorMessage = 'Invalid email or password';
+          _errorMessage = 'Failed to create account. Please try again.';
         });
       }
     } catch (e) {
@@ -82,21 +85,17 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   String _getErrorMessage(String error) {
-    if (error.contains('Invalid login credentials')) {
-      return 'Invalid email or password';
+    if (error.contains('User already registered')) {
+      return 'Email already registered. Please login instead.';
     }
-    if (error.contains('Email not confirmed')) {
-      return 'Please verify your email first. Check your inbox.';
+    if (error.contains('Password should be at least 6 characters')) {
+      return 'Password should be at least 6 characters';
     }
     return 'Something went wrong. Please try again.';
   }
 
-  void _navigateToSignUp() {
-    Navigator.pushNamed(context, AppRoutes.signup);
-  }
-
-  void _navigateToForgotPassword() {
-    Navigator.pushNamed(context, AppRoutes.forgotPassword);
+  void _navigateToLogin() {
+    Navigator.pushReplacementNamed(context, AppRoutes.login);
   }
 
   @override
@@ -117,36 +116,11 @@ class _LoginScreenState extends State<LoginScreen> {
                   alignment: Alignment.centerLeft,
                 ),
               ),
-              const SizedBox(height: 40),
-              FadeInUp(
-                child: Center(
-                  child: Container(
-                    width: 80,
-                    height: 80,
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [AppColors.primaryGreen, AppColors.primaryDark],
-                      ),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: const Center(
-                      child: Text(
-                        'T',
-                        style: TextStyle(
-                          fontSize: 40,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 20),
               FadeInUp(
                 delay: const Duration(milliseconds: 100),
                 child: const Text(
-                  'Welcome Back',
+                  'Create Account',
                   style: TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.bold,
@@ -158,20 +132,58 @@ class _LoginScreenState extends State<LoginScreen> {
               FadeInUp(
                 delay: const Duration(milliseconds: 150),
                 child: const Text(
-                  'Sign in to continue',
+                  'Sign up to get started',
                   style: TextStyle(
                     fontSize: 15,
                     color: AppColors.textGray,
                   ),
                 ),
               ),
-              const SizedBox(height: 40),
+              const SizedBox(height: 32),
               FadeInUp(
                 delay: const Duration(milliseconds: 200),
                 child: Form(
                   key: _formKey,
                   child: Column(
                     children: [
+                      // Name Field
+                      TextFormField(
+                        controller: _nameController,
+                        textInputAction: TextInputAction.next,
+                        decoration: InputDecoration(
+                          labelText: 'Full Name',
+                          hintText: 'Enter your full name',
+                          prefixIcon:
+                              const Icon(Icons.person_outline, size: 20),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide:
+                                const BorderSide(color: AppColors.borderLight),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide: const BorderSide(
+                                color: AppColors.primaryGreen, width: 1.5),
+                          ),
+                          filled: true,
+                          fillColor: AppColors.backgroundLight,
+                        ),
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please enter your name';
+                          }
+                          if (value.length < 2) {
+                            return 'Name must be at least 2 characters';
+                          }
+                          return null;
+                        },
+                      ),
+
+                      const SizedBox(height: 16),
+
                       // Email Field
                       TextFormField(
                         controller: _emailController,
@@ -215,11 +227,10 @@ class _LoginScreenState extends State<LoginScreen> {
                       TextFormField(
                         controller: _passwordController,
                         obscureText: _obscurePassword,
-                        textInputAction: TextInputAction.done,
-                        onFieldSubmitted: (_) => _handleLogin(),
+                        textInputAction: TextInputAction.next,
                         decoration: InputDecoration(
                           labelText: 'Password',
-                          hintText: 'Enter your password',
+                          hintText: 'Create a password',
                           prefixIcon: const Icon(Icons.lock_outline, size: 20),
                           suffixIcon: IconButton(
                             icon: Icon(
@@ -251,7 +262,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         validator: (value) {
                           if (value == null || value.isEmpty) {
-                            return 'Please enter your password';
+                            return 'Please enter a password';
                           }
                           if (value.length < 6) {
                             return 'Password must be at least 6 characters';
@@ -259,24 +270,58 @@ class _LoginScreenState extends State<LoginScreen> {
                           return null;
                         },
                       ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              FadeInUp(
-                delay: const Duration(milliseconds: 250),
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    onPressed: _navigateToForgotPassword,
-                    child: const Text(
-                      'Forgot Password?',
-                      style: TextStyle(
-                        color: AppColors.primaryGreen,
-                        fontWeight: FontWeight.w500,
+
+                      const SizedBox(height: 16),
+
+                      // Confirm Password Field
+                      TextFormField(
+                        controller: _confirmPasswordController,
+                        obscureText: _obscureConfirmPassword,
+                        textInputAction: TextInputAction.done,
+                        onFieldSubmitted: (_) => _handleSignUp(),
+                        decoration: InputDecoration(
+                          labelText: 'Confirm Password',
+                          hintText: 'Confirm your password',
+                          prefixIcon: const Icon(Icons.lock_outline, size: 20),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _obscureConfirmPassword
+                                  ? Icons.visibility_off_outlined
+                                  : Icons.visibility_outlined,
+                              size: 20,
+                            ),
+                            onPressed: () {
+                              setState(() => _obscureConfirmPassword =
+                                  !_obscureConfirmPassword);
+                            },
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide:
+                                const BorderSide(color: AppColors.borderLight),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide: const BorderSide(
+                                color: AppColors.primaryGreen, width: 1.5),
+                          ),
+                          filled: true,
+                          fillColor: AppColors.backgroundLight,
+                        ),
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please confirm your password';
+                          }
+                          if (value != _passwordController.text) {
+                            return 'Passwords do not match';
+                          }
+                          return null;
+                        },
                       ),
-                    ),
+                    ],
                   ),
                 ),
               ),
@@ -305,6 +350,30 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                 ),
+              if (_successMessage != null)
+                FadeInUp(
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.success.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.check_circle_outline,
+                            size: 18, color: AppColors.success),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _successMessage!,
+                            style: const TextStyle(
+                                color: AppColors.success, fontSize: 13),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               const SizedBox(height: 24),
               FadeInUp(
                 delay: const Duration(milliseconds: 300),
@@ -312,7 +381,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   width: double.infinity,
                   height: 52,
                   child: ElevatedButton(
-                    onPressed: _isLoading ? null : _handleLogin,
+                    onPressed: _isLoading ? null : _handleSignUp,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primaryGreen,
                       shape: RoundedRectangleBorder(
@@ -330,7 +399,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                           )
                         : const Text(
-                            'Sign In',
+                            'Sign Up',
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w600,
@@ -347,13 +416,13 @@ class _LoginScreenState extends State<LoginScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     const Text(
-                      "Don't have an account? ",
+                      "Already have an account? ",
                       style: TextStyle(color: AppColors.textGray),
                     ),
                     GestureDetector(
-                      onTap: _navigateToSignUp,
+                      onTap: _navigateToLogin,
                       child: const Text(
-                        'Sign Up',
+                        'Sign In',
                         style: TextStyle(
                           color: AppColors.primaryGreen,
                           fontWeight: FontWeight.w600,

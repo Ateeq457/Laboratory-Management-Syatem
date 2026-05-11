@@ -1,6 +1,5 @@
 // lib/presentation/screens/booking/date_time_selection_screen.dart
-// FIX: _bookedSlots are no longer a hardcoded 2024 Set.
-//      Slots are fetched live from Supabase via BaseBookingRepository.
+// FIX: Time slots only show future times for today's date
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -29,13 +28,11 @@ class DateTimeSelectionScreen extends StatefulWidget {
 }
 
 class _DateTimeSelectionScreenState extends State<DateTimeSelectionScreen> {
-  // FIX: injected from locator, not hardcoded
   final BaseBookingRepository _bookingRepo = locator<BaseBookingRepository>();
 
   DateTime? _selectedDate;
   String? _selectedTimeSlot;
 
-  // FIX: fetched from Supabase per selected date
   List<String> _availableSlots = [];
   bool _loadingSlots = false;
 
@@ -58,34 +55,90 @@ class _DateTimeSelectionScreenState extends State<DateTimeSelectionScreen> {
   @override
   void initState() {
     super.initState();
-    // Pre-select today so the user sees slots immediately
     _selectedDate = DateTime.now();
     _fetchSlotsForDate(_selectedDate!);
   }
 
-  /// FIX: replaces the hardcoded _bookedSlots Set
   Future<void> _fetchSlotsForDate(DateTime date) async {
     setState(() {
       _loadingSlots = true;
-      _selectedTimeSlot = null; // clear previous selection on date change
+      _selectedTimeSlot = null;
     });
 
     try {
-      final available = await _bookingRepo.getAvailableTimeSlots(date);
+      // Get available slots from repository (not booked + not past time)
+      final availableSlots = await _bookingRepo.getAvailableTimeSlots(date);
+
+      // Filter by time if selected date is today
+      final now = DateTime.now();
+      final isToday = date.year == now.year &&
+          date.month == now.month &&
+          date.day == now.day;
+
+      List<String> finalSlots;
+
+      if (isToday) {
+        finalSlots = availableSlots.where((slot) {
+          final slotHour = _getHourFromSlot(slot);
+          final slotMinute = _getMinuteFromSlot(slot);
+
+          // Only show future slots (30 minutes buffer)
+          final totalSlotMinutes = slotHour * 60 + slotMinute;
+          final totalCurrentMinutes = now.hour * 60 + now.minute + 30;
+
+          return totalSlotMinutes > totalCurrentMinutes;
+        }).toList();
+      } else {
+        finalSlots = availableSlots;
+      }
+
+      print('📅 Date: $date, isToday: $isToday');
+      print('🕐 Available slots: ${finalSlots.length}');
+
       if (mounted) {
         setState(() {
-          _availableSlots = available;
+          _availableSlots = finalSlots;
           _loadingSlots = false;
         });
       }
     } catch (e) {
+      print('❌ Error fetching slots: $e');
       if (mounted) {
         setState(() {
-          _availableSlots = List.from(_allSlots); // fallback: show all
+          _availableSlots = [];
           _loadingSlots = false;
         });
       }
     }
+  }
+
+  bool _isSameDay(DateTime date1, DateTime date2) {
+    return date1.year == date2.year &&
+        date1.month == date2.month &&
+        date1.day == date2.day;
+  }
+
+  int _getHourFromSlot(String slot) {
+    final parts = slot.split(' ');
+    final time = parts[0];
+    final period = parts[1];
+
+    var hour = int.parse(time.split(':')[0]);
+    if (period == 'PM' && hour != 12) hour += 12;
+    if (period == 'AM' && hour == 12) hour = 0;
+
+    return hour;
+  }
+
+  int _getMinuteFromSlot(String slot) {
+    final parts = slot.split(' ');
+    final time = parts[0];
+    return int.parse(time.split(':')[1]);
+  }
+
+  String _getCurrentTimeFormatted() {
+    final now = DateTime.now();
+    return DateFormat('h:mm a').format(now);
   }
 
   String _formatDate(DateTime date) => DateFormat('yyyy-MM-dd').format(date);
@@ -126,6 +179,8 @@ class _DateTimeSelectionScreenState extends State<DateTimeSelectionScreen> {
     final totalPrice = widget.bookingType == 'home'
         ? widget.test.price + (widget.test.homeSamplingFee ?? 500)
         : widget.test.price;
+    final isToday =
+        _selectedDate != null && _isSameDay(_selectedDate!, DateTime.now());
 
     return Scaffold(
       backgroundColor: AppColors.backgroundLight,
@@ -152,46 +207,14 @@ class _DateTimeSelectionScreenState extends State<DateTimeSelectionScreen> {
                 children: [
                   _buildBookingSummaryCard(totalPrice),
                   const SizedBox(height: 24),
-
-                  // Date Selection
-                  const Row(
-                    children: [
-                      Icon(Icons.calendar_today,
-                          size: 20, color: AppColors.primaryGreen),
-                      SizedBox(width: 8),
-                      Text('Select Date',
-                          style: TextStyle(
-                              fontSize: 16, fontWeight: FontWeight.w600)),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
                   _buildDatePicker(dates),
                   const SizedBox(height: 24),
-
-                  // Time Selection
-                  const Row(
-                    children: [
-                      Icon(Icons.access_time,
-                          size: 20, color: AppColors.primaryGreen),
-                      SizedBox(width: 8),
-                      Text('Select Time Slot',
-                          style: TextStyle(
-                              fontSize: 16, fontWeight: FontWeight.w600)),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-
-                  // FIX: Show loader while fetching slots, not hardcoded data
-                  _loadingSlots
-                      ? const Center(
-                          child: Padding(
-                            padding: EdgeInsets.all(24),
-                            child: CircularProgressIndicator(
-                                color: AppColors.primaryGreen),
-                          ),
-                        )
-                      : _buildTimeSlots(),
-
+                  _buildTimeSlots(isToday),
+                  if (isToday &&
+                      _selectedDate != null &&
+                      _availableSlots.isEmpty &&
+                      !_loadingSlots)
+                    _buildNoSlotsWarning(),
                   if (_selectedDate != null && _selectedTimeSlot != null) ...[
                     const SizedBox(height: 16),
                     _buildSelectedInfoCard(),
@@ -250,134 +273,219 @@ class _DateTimeSelectionScreenState extends State<DateTimeSelectionScreen> {
   }
 
   Widget _buildDatePicker(List<DateTime> dates) {
-    return SizedBox(
-      height: 100,
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        itemCount: dates.length,
-        itemBuilder: (context, index) {
-          final date = dates[index];
-          final isSelected = _selectedDate != null &&
-              _formatDate(_selectedDate!) == _formatDate(date);
-          final isToday = _formatDate(date) == _formatDate(DateTime.now());
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.calendar_today,
+                size: 20, color: AppColors.primaryGreen),
+            const SizedBox(width: 8),
+            const Text('Select Date',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+          ],
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 100,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            itemCount: dates.length,
+            itemBuilder: (context, index) {
+              final date = dates[index];
+              final isSelected = _selectedDate != null &&
+                  _formatDate(_selectedDate!) == _formatDate(date);
+              final isToday = _formatDate(date) == _formatDate(DateTime.now());
+              final isPastDate = date.isBefore(DateTime.now()) && !isToday;
 
-          return GestureDetector(
-            onTap: () {
-              setState(() => _selectedDate = date);
-              _fetchSlotsForDate(date);
-            },
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              width: 80,
-              margin: const EdgeInsets.only(right: 12),
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              decoration: BoxDecoration(
-                color: isSelected ? AppColors.primaryGreen : Colors.white,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color:
-                      isSelected ? Colors.transparent : AppColors.borderLight,
-                ),
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    DateFormat('EEE').format(date),
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                      color: isSelected ? Colors.white : AppColors.textGray,
+              return GestureDetector(
+                onTap: isPastDate
+                    ? null
+                    : () {
+                        setState(() => _selectedDate = date);
+                        _fetchSlotsForDate(date);
+                      },
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  width: 80,
+                  margin: const EdgeInsets.only(right: 12),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? AppColors.primaryGreen
+                        : isPastDate
+                            ? AppColors.backgroundLight
+                            : Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: isSelected
+                          ? Colors.transparent
+                          : isPastDate
+                              ? AppColors.borderLight
+                              : AppColors.borderLight,
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    DateFormat('dd').format(date),
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: isSelected ? Colors.white : AppColors.textDark,
-                    ),
-                  ),
-                  if (isToday)
-                    Container(
-                      width: 4,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color:
-                            isSelected ? Colors.white : AppColors.primaryGreen,
-                        shape: BoxShape.circle,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        DateFormat('EEE').format(date),
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: isSelected
+                              ? Colors.white
+                              : isPastDate
+                                  ? AppColors.textLightGray
+                                  : AppColors.textGray,
+                        ),
                       ),
-                    ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        DateFormat('dd').format(date),
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: isSelected
+                              ? Colors.white
+                              : isPastDate
+                                  ? AppColors.textLightGray
+                                  : AppColors.textDark,
+                        ),
+                      ),
+                      if (isToday)
+                        Container(
+                          width: 4,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? Colors.white
+                                : AppColors.primaryGreen,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 
-  Widget _buildTimeSlots() {
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        childAspectRatio: 2.0,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
-      ),
-      itemCount: _allSlots.length,
-      itemBuilder: (context, index) {
-        final slot = _allSlots[index];
-        // FIX: availability from live Supabase data, not 2024 hardcode
-        final isAvailable = _availableSlots.contains(slot);
-        final isSelected = _selectedTimeSlot == slot;
-
-        return GestureDetector(
-          onTap: isAvailable
-              ? () => setState(() => _selectedTimeSlot = slot)
-              : null,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            decoration: BoxDecoration(
-              color: isSelected
-                  ? AppColors.primaryGreen
-                  : !isAvailable
-                      ? AppColors.backgroundLight
-                      : Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppColors.borderLight),
-            ),
-            child: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    slot,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                      color: isSelected
-                          ? Colors.white
-                          : !isAvailable
-                              ? AppColors.textLightGray
-                              : AppColors.textDark,
-                    ),
-                  ),
-                  if (!isAvailable)
-                    const Text(
-                      'Booked',
-                      style: TextStyle(
-                          fontSize: 9, color: AppColors.textLightGray),
-                    ),
-                ],
+  Widget _buildTimeSlots(bool isToday) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.access_time,
+                size: 20, color: AppColors.primaryGreen),
+            const SizedBox(width: 8),
+            const Text('Select Time Slot',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+            if (isToday && !_loadingSlots)
+              Padding(
+                padding: const EdgeInsets.only(left: 12),
+                child: Text(
+                  'Available after ${_getCurrentTimeFormatted()}',
+                  style: const TextStyle(
+                      fontSize: 11, color: AppColors.textLightGray),
+                ),
               ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        _loadingSlots
+            ? const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(24),
+                  child:
+                      CircularProgressIndicator(color: AppColors.primaryGreen),
+                ),
+              )
+            : _availableSlots.isEmpty
+                ? Container(
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      color: AppColors.backgroundLight,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Center(
+                      child: Text(
+                        'No time slots available for this date',
+                        style: TextStyle(color: AppColors.textGray),
+                      ),
+                    ),
+                  )
+                : GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 3,
+                      childAspectRatio: 2.0,
+                      crossAxisSpacing: 12,
+                      mainAxisSpacing: 12,
+                    ),
+                    itemCount: _availableSlots.length,
+                    itemBuilder: (context, index) {
+                      final slot = _availableSlots[index];
+                      final isSelected = _selectedTimeSlot == slot;
+
+                      return GestureDetector(
+                        onTap: () => setState(() => _selectedTimeSlot = slot),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? AppColors.primaryGreen
+                                : Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: AppColors.borderLight),
+                          ),
+                          child: Center(
+                            child: Text(
+                              slot,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                                color: isSelected
+                                    ? Colors.white
+                                    : AppColors.textDark,
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+      ],
+    );
+  }
+
+  Widget _buildNoSlotsWarning() {
+    return Container(
+      margin: const EdgeInsets.only(top: 16),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.warning.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.info_outline, size: 18, color: AppColors.warning),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'No time slots available for today. Please select another date.',
+              style: TextStyle(fontSize: 12, color: AppColors.warning),
             ),
           ),
-        );
-      },
+        ],
+      ),
     );
   }
 

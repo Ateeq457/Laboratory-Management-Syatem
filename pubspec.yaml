@@ -2,7 +2,7 @@ name: lab_system
 description: "Thal-Care Diagnostic Booking System - Professional healthcare lab booking app"
 publish_to: 'none'
 
-version: 1.0.0+2
+version: 1.0.0+3
 
 environment:
   sdk: ">=3.5.0 <4.0.0"
@@ -48,9 +48,6 @@ dependencies:
 
   # ---------------- NAVIGATION ----------------
   go_router: ^15.1.1
-
-  firebase_core: ^3.0.0
-  firebase_auth: ^5.0.0
 
   # ---------------- CALENDAR (BOOKING SYSTEM) ----------------
   table_calendar: ^3.1.3

@@ -1,186 +1,200 @@
 // lib/data/repositories/supabase_auth_repository.dart
-// ✅ PRODUCTION-READY — Hybrid Auth Repository
-//
-// Auth layer  : Firebase Phone OTP (identity / session)
-// Data layer  : Supabase Postgres (user profiles & app data)
-//
-// FIX 1: isLoggedIn() now checks Firebase Auth currentUser (not Supabase
-//         session). In a hybrid setup the Supabase auth session is never
-//         created — only Firebase holds the session.
-// FIX 2: _authenticateUser stores Firebase UID as the Supabase user ID so
-//         the two systems are linked by a stable key.
-// FIX 3: Removed _isDebugMode gating — production should always work.
+// PRODUCTION-READY - Pure Supabase Email/Password Auth
 
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-
 import 'base_auth_repository.dart';
 import '../models/user_model.dart';
 
 class SupabaseAuthRepository implements BaseAuthRepository {
   final _supabase = Supabase.instance.client;
-  final _firebaseAuth = FirebaseAuth.instance;
-
   static const String _keyUserId = 'current_user_id';
-  static const String _keyUserPhone = 'current_user_phone';
+  static const String _keyUserEmail = 'current_user_email';
 
-  // ─────────────────────────────────────────────────────────────
-  // SEND OTP — delegated entirely to Firebase (see FirebaseAuthService)
-  // This implementation is a no-op stub; the real send happens in
-  // FirebaseAuthService called directly from LoginScreen.
-  // ─────────────────────────────────────────────────────────────
   @override
-  Future<bool> sendOTP(String phoneNumber) async => true;
-
-  // ─────────────────────────────────────────────────────────────
-  // VERIFY OTP — called after Firebase verifies the OTP.
-  // At this point Firebase currentUser is already set.
-  // We upsert the user in Supabase and persist their ID locally.
-  // ─────────────────────────────────────────────────────────────
-  @override
-  Future<UserModel?> verifyOTP(String phoneNumber, String otp) async {
-    // The OTP was already verified by FirebaseAuthService before calling here.
-    // We just need to upsert the Supabase user record.
-    return await _authenticateUser(phoneNumber);
-  }
-
-  // ─────────────────────────────────────────────────────────────
-  // Called directly from OTPVerificationScreen after Firebase confirms
-  // the user. Upserts a Supabase user row keyed on Firebase UID.
-  // ─────────────────────────────────────────────────────────────
-  Future<UserModel?> authenticateAfterFirebaseVerification(
-      String phoneNumber) async {
-    return await _authenticateUser(phoneNumber);
-  }
-
-  Future<UserModel?> _authenticateUser(String phoneNumber) async {
+  Future<UserModel?> signUp({
+    required String email,
+    required String password,
+    required String name,
+  }) async {
     try {
-      final firebaseUid = _firebaseAuth.currentUser?.uid;
+      debugPrint('📝 Signing up: $email');
 
-      // Try to find existing user by phone in Supabase
-      UserModel? user = await _getUserByPhone(phoneNumber);
+      final response = await _supabase.auth.signUp(
+        email: email.trim().toLowerCase(),
+        password: password,
+        data: {'name': name},
+      );
 
-      if (user != null) {
-        // Update last_login timestamp
-        await _supabase.from('users').update(
-            {'last_login': DateTime.now().toIso8601String()}).eq('id', user.id);
-
-        await _persistUser(user);
-        debugPrint('✅ Existing user authenticated: ${user.id}');
-        return user;
+      if (response.user == null) {
+        debugPrint('❌ Sign up failed: No user returned');
+        return null;
       }
 
-      // New user — create record
-      user = await _createUser(phoneNumber, firebaseUid);
-      await _persistUser(user);
-      debugPrint('✅ New user created: ${user.id}');
-      return user;
+      final userId = response.user!.id;
+
+      // Insert into public.users table
+      await _supabase.from('users').insert({
+        'id': userId,
+        'email': email.trim().toLowerCase(),
+        'name': name,
+        'created_at': DateTime.now().toIso8601String(),
+        'last_login': DateTime.now().toIso8601String(),
+      });
+
+      await _persistUser(userId, email);
+
+      debugPrint('✅ User signed up: $userId');
+
+      return UserModel(
+        id: userId,
+        phone: email,
+        name: name,
+        email: email,
+        createdAt: DateTime.now(),
+      );
+    } on AuthException catch (e) {
+      debugPrint('❌ Sign up error: ${e.message}');
+
+      // Convert to user-friendly error message
+      final message = e.message.toLowerCase();
+      if (message.contains('rate limit') || message.contains('too many')) {
+        throw Exception('Too many attempts. Please wait 5 minutes.');
+      } else if (message.contains('already registered')) {
+        throw Exception('Email already registered. Please login.');
+      } else if (message.contains('password')) {
+        throw Exception('Password must be at least 6 characters.');
+      } else {
+        throw Exception('Sign up failed. Please try again.');
+      }
     } catch (e) {
-      debugPrint('❌ Error in _authenticateUser: $e');
-      return null;
+      debugPrint('❌ Sign up error: $e');
+      throw Exception(
+          'Something went wrong. Please check your internet connection.');
     }
   }
 
-  Future<UserModel?> _getUserByPhone(String phoneNumber) async {
-    try {
-      final response = await _supabase
-          .from('users')
-          .select()
-          .eq('phone', phoneNumber)
-          .maybeSingle();
-
-      if (response == null) return null;
-      return UserModel.fromJson(response);
-    } catch (e) {
-      debugPrint('❌ _getUserByPhone error: $e');
-      return null;
-    }
-  }
-
-  Future<UserModel> _createUser(String phoneNumber, String? firebaseUid) async {
-    final response = await _supabase
-        .from('users')
-        .insert({
-          'phone': phoneNumber,
-          'name': '',
-          'created_at': DateTime.now().toIso8601String(),
-          'last_login': DateTime.now().toIso8601String(),
-        })
-        .select()
-        .single();
-
-    return UserModel.fromJson(response);
-  }
-
-  Future<void> _persistUser(UserModel user) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_keyUserId, user.id);
-    await prefs.setString(_keyUserPhone, user.phone);
-  }
-
-  // ─────────────────────────────────────────────────────────────
-  // IS LOGGED IN
-  // ✅ FIX: Check Firebase Auth (the real session holder in hybrid mode).
-  //         Previously checked Supabase session which is never set.
-  // ─────────────────────────────────────────────────────────────
   @override
-  Future<bool> isLoggedIn() async {
-    // Primary check: Firebase session
-    final firebaseUser = _firebaseAuth.currentUser;
-    if (firebaseUser != null) return true;
+  Future<UserModel?> signIn({
+    required String email,
+    required String password,
+  }) async {
+    try {
+      debugPrint('🔐 Signing in: $email');
 
-    // Fallback: SharedPreferences (for cases where Firebase session
-    // was cleared but user hasn't explicitly logged out)
-    final prefs = await SharedPreferences.getInstance();
-    final userId = prefs.getString(_keyUserId);
-    return userId != null && userId.isNotEmpty;
+      final response = await _supabase.auth.signInWithPassword(
+        email: email.trim().toLowerCase(),
+        password: password,
+      );
+
+      if (response.user == null) {
+        debugPrint('❌ Sign in failed: No user returned');
+        return null;
+      }
+
+      final userId = response.user!.id;
+      final userEmail = response.user!.email ?? email;
+
+      await _supabase.from('users').upsert({
+        'id': userId,
+        'email': userEmail,
+        'last_login': DateTime.now().toIso8601String(),
+      });
+
+      await _persistUser(userId, userEmail);
+
+      final user = await _getUserById(userId);
+      debugPrint('✅ User signed in: $userId');
+      return user;
+    } on AuthException catch (e) {
+      debugPrint('❌ Sign in error: ${e.message}');
+
+      final message = e.message.toLowerCase();
+      if (message.contains('invalid login credentials')) {
+        throw Exception('Invalid email or password.');
+      } else if (message.contains('rate limit')) {
+        throw Exception('Too many attempts. Please wait 5 minutes.');
+      } else if (message.contains('email not confirmed')) {
+        throw Exception('Please verify your email first. Check your inbox.');
+      } else {
+        throw Exception('Sign in failed. Please try again.');
+      }
+    } catch (e) {
+      debugPrint('❌ Sign in error: $e');
+      throw Exception('Something went wrong. Please try again.');
+    }
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // GET CURRENT USER
-  // ─────────────────────────────────────────────────────────────
+  @override
+  Future<void> signOut() async {
+    try {
+      await _supabase.auth.signOut();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_keyUserId);
+      await prefs.remove(_keyUserEmail);
+      debugPrint('✅ User signed out');
+    } catch (e) {
+      debugPrint('⚠️ Sign out error: $e');
+    }
+  }
+
   @override
   Future<UserModel?> getCurrentUser() async {
-    final prefs = await SharedPreferences.getInstance();
-    final userId = prefs.getString(_keyUserId);
-    if (userId == null || userId.isEmpty) return null;
-
     try {
-      final response =
-          await _supabase.from('users').select().eq('id', userId).maybeSingle();
-      if (response == null) return null;
-      return UserModel.fromJson(response);
+      final session = _supabase.auth.currentSession;
+      if (session != null) {
+        final user = await _getUserById(session.user.id);
+        if (user != null) {
+          await _persistUser(session.user.id, session.user.email ?? '');
+          return user;
+        }
+      }
+
+      final prefs = await SharedPreferences.getInstance();
+      final userId = prefs.getString(_keyUserId);
+      if (userId != null && userId.isNotEmpty) {
+        return await _getUserById(userId);
+      }
+
+      return null;
     } catch (e) {
       debugPrint('❌ getCurrentUser error: $e');
       return null;
     }
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // LOGOUT
-  // ─────────────────────────────────────────────────────────────
   @override
-  Future<void> logout() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_keyUserId);
-    await prefs.remove(_keyUserPhone);
+  Future<UserModel?> refreshUser() async {
+    final currentUser = await getCurrentUser();
+    if (currentUser == null) return null;
+    return await _getUserById(currentUser.id);
+  }
 
+  Future<UserModel?> _getUserById(String userId) async {
     try {
-      await _firebaseAuth.signOut();
+      final response =
+          await _supabase.from('users').select().eq('id', userId).maybeSingle();
+
+      if (response == null) return null;
+      return UserModel.fromJson(response);
     } catch (e) {
-      debugPrint('⚠️ Firebase signOut warning: $e');
+      debugPrint('❌ _getUserById error: $e');
+      return null;
     }
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // UPDATE USER PROFILE
-  // ─────────────────────────────────────────────────────────────
+  Future<void> _persistUser(String userId, String email) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyUserId, userId);
+    await prefs.setString(_keyUserEmail, email);
+  }
+
   @override
   Future<UserModel?> updateUserProfile({
     String? name,
     String? email,
+    String? phone,
     String? sector,
     String? address,
   }) async {
@@ -190,8 +204,11 @@ class SupabaseAuthRepository implements BaseAuthRepository {
     final updates = <String, dynamic>{};
     if (name != null) updates['name'] = name;
     if (email != null) updates['email'] = email;
+    if (phone != null) updates['phone'] = phone;
     if (sector != null) updates['sector'] = sector;
     if (address != null) updates['address'] = address;
+    updates['updated_at'] = DateTime.now().toIso8601String();
+
     if (updates.isEmpty) return currentUser;
 
     try {
@@ -206,5 +223,73 @@ class SupabaseAuthRepository implements BaseAuthRepository {
       debugPrint('❌ updateUserProfile error: $e');
       return null;
     }
+  }
+
+  @override
+  Future<bool> sendPasswordResetEmail(String email) async {
+    try {
+      await _supabase.auth.resetPasswordForEmail(email.trim().toLowerCase());
+      debugPrint('✅ Password reset email sent to: $email');
+      return true;
+    } on AuthException catch (e) {
+      debugPrint('❌ sendPasswordResetEmail error: ${e.message}');
+
+      final message = e.message.toLowerCase();
+      if (message.contains('rate limit') || message.contains('too many')) {
+        throw Exception('Too many reset requests. Please wait 5 minutes.');
+      } else if (message.contains('user not found')) {
+        throw Exception('No account found with this email address.');
+      } else {
+        throw Exception('Failed to send reset email. Please try again.');
+      }
+    } catch (e) {
+      debugPrint('❌ sendPasswordResetEmail error: $e');
+      throw Exception('Something went wrong. Please try again.');
+    }
+  }
+
+  @override
+  Future<bool> isLoggedIn() async {
+    final session = _supabase.auth.currentSession;
+    if (session != null) return true;
+
+    final prefs = await SharedPreferences.getInstance();
+    final userId = prefs.getString(_keyUserId);
+    return userId != null && userId.isNotEmpty;
+  }
+
+  @override
+  Stream<AuthUserState?> get authStateChanges {
+    return _supabase.auth.onAuthStateChange.map((event) {
+      if (event.session != null) {
+        return AuthUserState(
+          userId: event.session!.user.id,
+          email: event.session!.user.email,
+          isEmailVerified: event.session!.user.emailConfirmedAt != null,
+        );
+      }
+      return const AuthUserState();
+    });
+  }
+
+  @override
+  Future<bool> resendEmailVerification() async {
+    try {
+      final user = _supabase.auth.currentUser;
+      if (user == null) return false;
+
+      // Note: Supabase doesn't have direct resend method
+      // User can request via settings or sign up again
+      debugPrint('⚠️ Email verification resend - user should check email');
+      return false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  @override
+  Future<bool> isEmailVerified() async {
+    final user = _supabase.auth.currentUser;
+    return user?.emailConfirmedAt != null;
   }
 }
