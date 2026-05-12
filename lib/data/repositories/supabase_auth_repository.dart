@@ -25,6 +25,7 @@ class SupabaseAuthRepository implements BaseAuthRepository {
         email: email.trim().toLowerCase(),
         password: password,
         data: {'name': name},
+        emailRedirectTo: 'lab_system://auth-callback',
       );
 
       if (response.user == null) {
@@ -228,7 +229,11 @@ class SupabaseAuthRepository implements BaseAuthRepository {
   @override
   Future<bool> sendPasswordResetEmail(String email) async {
     try {
-      await _supabase.auth.resetPasswordForEmail(email.trim().toLowerCase());
+      await _supabase.auth.resetPasswordForEmail(
+        email.trim().toLowerCase(),
+        redirectTo: 'lab_system://reset-password',
+      );
+
       debugPrint('✅ Password reset email sent to: $email');
 
       // Add a small delay to prevent rapid-fire requests
@@ -240,7 +245,6 @@ class SupabaseAuthRepository implements BaseAuthRepository {
 
       final message = e.message.toLowerCase();
 
-      // Rate limit handling with user-friendly message
       if (message.contains('rate limit') ||
           message.contains('too many') ||
           message.contains('over_email_send_rate_limit')) {

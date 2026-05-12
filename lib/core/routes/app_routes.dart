@@ -3,6 +3,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:lab_system/presentation/screens/auth/login_screen.dart';
+import 'package:lab_system/presentation/screens/auth/new_password_screen.dart';
 import 'package:lab_system/presentation/screens/auth/signup_screen.dart';
 import 'package:lab_system/presentation/screens/auth/forgot_password_screen.dart';
 import 'package:lab_system/presentation/screens/auth/name_input_screen.dart';
@@ -27,6 +28,7 @@ class AppRoutes {
   static const String forgotPassword = '/forgot-password';
   static const String nameInput = '/name-input';
   static const String profile = '/profile';
+  static const String newPassword = '/new-password';
 
   static Route<dynamic> generateRoute(RouteSettings settings) {
     switch (settings.name) {
@@ -64,6 +66,9 @@ class AppRoutes {
 
       case profile:
         return _route(const ProfileScreen());
+
+      case newPassword:
+        return _route(const ResetPasswordScreen());
 
       default:
         return _route(
