@@ -230,21 +230,34 @@ class SupabaseAuthRepository implements BaseAuthRepository {
     try {
       await _supabase.auth.resetPasswordForEmail(email.trim().toLowerCase());
       debugPrint('✅ Password reset email sent to: $email');
+
+      // Add a small delay to prevent rapid-fire requests
+      await Future.delayed(const Duration(seconds: 2));
+
       return true;
     } on AuthException catch (e) {
       debugPrint('❌ sendPasswordResetEmail error: ${e.message}');
 
       final message = e.message.toLowerCase();
-      if (message.contains('rate limit') || message.contains('too many')) {
-        throw Exception('Too many reset requests. Please wait 5 minutes.');
-      } else if (message.contains('user not found')) {
+
+      // Rate limit handling with user-friendly message
+      if (message.contains('rate limit') ||
+          message.contains('too many') ||
+          message.contains('over_email_send_rate_limit')) {
+        throw Exception(
+            'Too many reset attempts. Please wait 15-20 minutes before trying again.');
+      } else if (message.contains('user not found') ||
+          message.contains('invalid email')) {
         throw Exception('No account found with this email address.');
+      } else if (message.contains('invalid')) {
+        throw Exception('Invalid email address. Please check and try again.');
       } else {
-        throw Exception('Failed to send reset email. Please try again.');
+        throw Exception('Unable to send reset email. Please try again later.');
       }
     } catch (e) {
       debugPrint('❌ sendPasswordResetEmail error: $e');
-      throw Exception('Something went wrong. Please try again.');
+      throw Exception(
+          'Network error. Please check your connection and try again.');
     }
   }
 

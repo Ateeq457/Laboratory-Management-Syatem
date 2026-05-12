@@ -302,14 +302,14 @@ class _AddressSelectionScreenState extends State<AddressSelectionScreen> {
                 ),
                 const SizedBox(height: 2),
                 const Text(
-                  'Main Road, Khalabat Sector 1',
+                  'Khalabat Clinical Laboratory Azam chok kts sector no 2 Haripur',
                   style: TextStyle(fontSize: 12, color: AppColors.textGray),
                 ),
-                Text(
-                  'Near City Hospital',
-                  style:
-                      TextStyle(fontSize: 11, color: AppColors.textLightGray),
-                ),
+                // Text(
+                //   'Near City Hospital',
+                //   style:
+                //       TextStyle(fontSize: 11, color: AppColors.textLightGray),
+                // ),
               ],
             ),
           ),
